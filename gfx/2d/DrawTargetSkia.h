@@ -76,6 +76,8 @@ public:
   virtual void CopySurface(SourceSurface *aSurface,
                            const IntRect &aSourceRect,
                            const IntPoint &aDestination);
+  virtual void SelfCopySurface(const IntRect &aSourceRect,
+                               const IntPoint &aDestination);
   virtual void FillRect(const Rect &aRect,
                         const Pattern &aPattern,
                         const DrawOptions &aOptions = DrawOptions());

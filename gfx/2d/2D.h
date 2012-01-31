@@ -573,6 +573,13 @@ public:
                            const IntRect &aSourceRect,
                            const IntPoint &aDestination) = 0;
 
+  virtual void SelfCopySurface(const IntRect &aSourceRect,
+                               const IntPoint &aDestination)
+  {
+    RefPtr<SourceSurface> surf = Snapshot();
+    CopySurface(surf, aSourceRect, aDestination);
+  }
+
   /*
    * Fill a rectangle on the DrawTarget with a certain source pattern.
    *

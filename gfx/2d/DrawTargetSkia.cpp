@@ -666,6 +666,15 @@ DrawTargetSkia::CopySurface(SourceSurface *aSurface,
   mCanvas->restore();
 }
 
+void
+DrawTargetSkia::SelfCopySurface(const IntRect& aSourceRect,
+                                const IntPoint &aDestination)
+{
+  MarkChanged();
+  SkIRect source = IntRectToSkIRect(aSourceRect);
+  mBitmap.scrollRect(&source, aDestination.x - aSourceRect.x, aDestination.y - aSourceRect.y);
+}
+
 bool
 DrawTargetSkia::Init(const IntSize &aSize, SurfaceFormat aFormat)
 {
