@@ -95,6 +95,8 @@
 
 #include <ApplicationServices/ApplicationServices.h>
 
+#include "mozilla/gfx/2D.h"
+#include "gfxQuartzNativeDrawing.h"
 #include "sampler.h"
 
 using namespace mozilla;
@@ -1855,17 +1857,24 @@ nsChildView::DrawWindowOverlay(LayerManager* aManager, nsIntRect aRect)
       return;
 
     nsIntRegion update(nsIntRect(0, 0, 15, 15));
-    gfxASurface *asurf = mResizerImage->BeginUpdate(update);
-    if (!asurf) {
+    gfx::DrawTarget* dt = nsnull;
+    gfxASurface *target = mResizerImage->BeginUpdate(update, &dt);
+    if (!target && !dt) {
       mResizerImage = nsnull;
       return;
     }
 
-    NS_ABORT_IF_FALSE(asurf->GetType() == gfxASurface::SurfaceTypeQuartz,
-                  "BeginUpdate must return a Quartz surface!");
+    nsRefPtr<gfxContext> ctx = dt ? new gfxContext(dt) : new gfxContext(target);
+    gfxQuartzNativeDrawing nativeDrawing(ctx, gfxRect(0, 0, 15, 15));
 
-    nsRefPtr<gfxQuartzSurface> image = static_cast<gfxQuartzSurface*>(asurf);
-    DrawResizer(image->GetCGContext());
+    CGContextRef cgContext = nativeDrawing.BeginNativeDrawing();
+    if (cgContext == nsnull) {
+      mResizerImage = nsnull;
+      return;
+    }
+
+    DrawResizer(cgContext);
+    nativeDrawing.EndNativeDrawing();
 
     mResizerImage->EndUpdate();
   }
@@ -2603,7 +2612,16 @@ NSEvent* gLastDragMouseDownEvent = nil;
     new gfxQuartzSurface(aContext, gfxSize(bufferSize.width, bufferSize.height));
   targetSurface->SetAllowUseAsSource(false);
 
-  nsRefPtr<gfxContext> targetContext = new gfxContext(targetSurface);
+  RefPtr<gfx::DrawTarget> target;
+  nsRefPtr<gfxContext> targetContext;
+  if (gfxPlatform::UseAzureContentDrawing()) {
+    target = 
+      gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(gfx::IntSize(bufferSize.width, bufferSize.height), 
+                                                            [self isOpaque] ? gfx::FORMAT_B8G8R8A8 : gfx::FORMAT_B8G8R8X8);
+    targetContext = new gfxContext(target);
+  } else {
+    targetContext = new gfxContext(targetSurface);
+  }
 
   // Set up the clip region.
   nsIntRegionRectIterator iter(paintEvent.region);
@@ -2632,6 +2650,12 @@ NSEvent* gLastDragMouseDownEvent = nil;
       [self performSelector:@selector(forceRefreshOpenGL) withObject:nil afterDelay:0];
       mDidForceRefreshOpenGL = YES;
     }
+  }
+
+  if (painted && target) {
+    nsRefPtr<gfxASurface> source = gfxPlatform::GetPlatform()->GetThebesSurfaceForDrawTarget(target);
+    nsRefPtr<gfxContext> dest = new gfxContext(targetSurface);
+    dest->DrawSurface(source, gfxSize(bufferSize.width, bufferSize.height));
   }
 
   if (!painted && [self isOpaque]) {

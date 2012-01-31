@@ -41,9 +41,12 @@
 #include "gfxPlatform.h"
 #include "gfxUtils.h"
 #include "nsDeviceContext.h"
+#include "mozilla/gfx/2D.h"
 
 namespace mozilla {
 namespace layers {
+
+using namespace gfx;
 
 nsIntRect
 ThebesLayerBuffer::GetQuadrantRectangle(XSide aXSide, YSide aYSide)
@@ -86,7 +89,14 @@ ThebesLayerBuffer::DrawBufferQuadrant(gfxContext* aTarget,
                      true);
 
   gfxPoint quadrantTranslation(quadrantRect.x, quadrantRect.y);
-  nsRefPtr<gfxPattern> pattern = new gfxPattern(mBuffer);
+  nsRefPtr<gfxPattern> pattern;
+  if (mDTBuffer) {
+    Matrix mat;
+    RefPtr<SourceSurface> source = mDTBuffer->Snapshot();
+    pattern = new gfxPattern(source, mat);
+  } else {
+    pattern = new gfxPattern(mBuffer);
+  }
 
 #ifdef MOZ_GFX_OPTIMIZE_MOBILE
   gfxPattern::GraphicsFilter filter = gfxPattern::FILTER_NEAREST;
@@ -97,7 +107,12 @@ ThebesLayerBuffer::DrawBufferQuadrant(gfxContext* aTarget,
 
   // Transform from user -> buffer space.
   gfxMatrix transform;
-  transform.Translate(-quadrantTranslation);
+  if (mDTBuffer) {
+    // Why is this backwards with Azure? I don't know! (yet)
+    transform.Translate(quadrantTranslation);
+  } else {
+    transform.Translate(-quadrantTranslation);
+  }
 
   pattern->SetMatrix(transform);
   aTarget->SetPattern(pattern);
@@ -126,7 +141,12 @@ ThebesLayerBuffer::DrawBufferWithRotation(gfxContext* aTarget, float aOpacity)
 already_AddRefed<gfxContext>
 ThebesLayerBuffer::GetContextForQuadrantUpdate(const nsIntRect& aBounds)
 {
-  nsRefPtr<gfxContext> ctx = new gfxContext(mBuffer);
+  nsRefPtr<gfxContext> ctx;
+  if (mBuffer) {
+    ctx = new gfxContext(mBuffer);
+  } else {
+    ctx = new gfxContext(mDTBuffer);
+  }
 
   // Figure out which quadrant to draw in
   PRInt32 xBoundary = mBufferRect.XMost() - mBufferRotation.x;
@@ -169,7 +189,7 @@ ThebesLayerBuffer::BeginPaint(ThebesLayer* aLayer, ContentType aContentType,
   while (true) {
     contentType = aContentType;
     neededRegion = aLayer->GetVisibleRegion();
-    canReuseBuffer = mBuffer && BufferSizeOkFor(neededRegion.GetBounds().Size());
+    canReuseBuffer = (mBuffer || mDTBuffer) && BufferSizeOkFor(neededRegion.GetBounds().Size());
 
     if (canReuseBuffer) {
       if (mBufferRect.Contains(neededRegion.GetBounds())) {
@@ -197,7 +217,8 @@ ThebesLayerBuffer::BeginPaint(ThebesLayer* aLayer, ContentType aContentType,
       neededRegion = destBufferRect;
     }
 
-    if (mBuffer && contentType != mBuffer->GetContentType()) {
+    if ((mBuffer && contentType != mBuffer->GetContentType()) ||
+        (mDTBuffer && contentType != ContentForFormat(mDTBuffer->GetFormat()))) {
       // We're effectively clearing the valid region, so we need to draw
       // the entire needed region now.
       result.mRegionToInvalidate = aLayer->GetValidRegion();
@@ -220,6 +241,7 @@ ThebesLayerBuffer::BeginPaint(ThebesLayer* aLayer, ContentType aContentType,
 
   nsIntRect drawBounds = result.mRegionToDraw.GetBounds();
   nsRefPtr<gfxASurface> destBuffer;
+  RefPtr<DrawTarget> destDT;
   PRUint32 bufferFlags = canHaveRotation ? ALLOW_REPEAT : 0;
   if (canReuseBuffer) {
     nsIntRect keepArea;
@@ -241,21 +263,41 @@ ThebesLayerBuffer::BeginPaint(ThebesLayer* aLayer, ContentType aContentType,
         // The stuff we need to redraw will wrap around an edge of the
         // buffer, so move the pixels we can keep into a position that
         // lets us redraw in just one quadrant.
-        if (mBufferRotation == nsIntPoint(0,0)) {
-          nsIntRect srcRect(nsIntPoint(0, 0), mBufferRect.Size());
-          nsIntPoint dest = mBufferRect.TopLeft() - destBufferRect.TopLeft();
-          mBuffer->MovePixels(srcRect, dest);
-          result.mDidSelfCopy = true;
-          // Don't set destBuffer; we special-case self-copies, and
-          // just did the necessary work above.
-          mBufferRect = destBufferRect;
+        if (gfxPlatform::UseAzureContentDrawing()) {
+          if (mBufferRotation == nsIntPoint(0,0)) {
+            IntRect srcRect(IntPoint(0, 0), IntSize(mBufferRect.Size().width, mBufferRect.Size().height));
+            nsIntPoint dest = mBufferRect.TopLeft() - destBufferRect.TopLeft();
+            mDTBuffer->SelfCopySurface(srcRect, IntPoint(dest.x, dest.y));
+            result.mDidSelfCopy = true;
+            // Don't set destBuffer; we special-case self-copies, and
+            // just did the necessary work above.
+            mBufferRect = destBufferRect;
+          } else {
+            // We can't do a real self-copy because the buffer is rotated.
+            // So allocate a new buffer for the destination.
+            destBufferRect = neededRegion.GetBounds();
+            destDT = CreateDrawTarget(destBufferRect.Size(), contentType);
+            if (!destDT)
+              return result;
+          } 
         } else {
-          // We can't do a real self-copy because the buffer is rotated.
-          // So allocate a new buffer for the destination.
-          destBufferRect = neededRegion.GetBounds();
-          destBuffer = CreateBuffer(contentType, destBufferRect.Size(), bufferFlags);
-          if (!destBuffer)
-            return result;
+          if (mBufferRotation == nsIntPoint(0,0)) {
+            nsIntRect srcRect(nsIntPoint(0, 0), mBufferRect.Size());
+            nsIntPoint dest = mBufferRect.TopLeft() - destBufferRect.TopLeft();
+            mBuffer->MovePixels(srcRect, dest);
+            result.mDidSelfCopy = true;
+            // Don't set destBuffer; we special-case self-copies, and
+            // just did the necessary work above.
+            mBufferRect = destBufferRect;
+          } else {
+            // We can't do a real self-copy because the buffer is rotated.
+            // So allocate a new buffer for the destination.
+            destBufferRect = neededRegion.GetBounds();
+            destBuffer = CreateBuffer(contentType, destBufferRect.Size(), bufferFlags);
+            if (!destBuffer)
+              return result;
+
+          }
         }
       } else {
         mBufferRect = destBufferRect;
@@ -270,8 +312,12 @@ ThebesLayerBuffer::BeginPaint(ThebesLayer* aLayer, ContentType aContentType,
     }
   } else {
     // The buffer's not big enough, so allocate a new one
-    destBuffer = CreateBuffer(contentType, destBufferRect.Size(), bufferFlags);
-    if (!destBuffer)
+    if (gfxPlatform::UseAzureContentDrawing()) {
+      destDT = CreateDrawTarget(destBufferRect.Size(), contentType);
+    } else {
+      destBuffer = CreateBuffer(contentType, destBufferRect.Size(), bufferFlags);
+    }
+    if (!destBuffer && !destDT)
       return result;
   }
   NS_ASSERTION(!(aFlags & PAINT_WILL_RESAMPLE) || destBufferRect == neededRegion.GetBounds(),
@@ -292,6 +338,20 @@ ThebesLayerBuffer::BeginPaint(ThebesLayer* aLayer, ContentType aContentType,
     }
 
     mBuffer = destBuffer.forget();
+    mBufferRect = destBufferRect;
+    mBufferRotation = nsIntPoint(0,0);
+  }
+  if (destDT) {
+    if (mDTBuffer) {
+      // Copy the bits
+      nsRefPtr<gfxContext> tmpCtx = new gfxContext(destDT);
+      nsIntPoint offset = -destBufferRect.TopLeft();
+      tmpCtx->SetOperator(gfxContext::OPERATOR_SOURCE);
+      tmpCtx->Translate(gfxPoint(offset.x, offset.y));
+      DrawBufferWithRotation(tmpCtx, 1.0);
+    }
+
+    mDTBuffer = destDT.forget();
     mBufferRect = destBufferRect;
     mBufferRotation = nsIntPoint(0,0);
   }

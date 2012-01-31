@@ -77,6 +77,8 @@ namespace layers {
 class BasicContainerLayer;
 class ShadowableLayer;
 
+using namespace gfx;
+
 /**
  * This is the ImplData for all Basic layers. It also exposes methods
  * private to the Basic implementation that are common to all Basic layer types.
@@ -435,27 +437,54 @@ public:
 
   virtual already_AddRefed<gfxASurface>
   CreateBuffer(ContentType aType, const nsIntSize& aSize, PRUint32 aFlags);
+  virtual TemporaryRef<DrawTarget>
+  CreateDrawTarget(const gfx::IntSize& aSize, gfx::SurfaceFormat aFormat);
 
   /**
    * Swap out the old backing buffer for |aBuffer| and attributes.
    */
-  void SetBackingBuffer(gfxASurface* aBuffer,
+  void SetBackingBuffer(DrawTarget* aBuffer,
                         const nsIntRect& aRect, const nsIntPoint& aRotation)
   {
-    gfxIntSize prevSize = gfxIntSize(BufferRect().width, BufferRect().height);
-    gfxIntSize newSize = aBuffer->GetSize();
+    IntSize prevSize = IntSize(BufferRect().width, BufferRect().height);
+    IntSize newSize = aBuffer->GetSize();
     NS_ABORT_IF_FALSE(newSize == prevSize,
                       "Swapped-in buffer size doesn't match old buffer's!");
-    nsRefPtr<gfxASurface> oldBuffer;
-    oldBuffer = SetBuffer(aBuffer, aRect, aRotation);
+    RefPtr<DrawTarget> oldBuffer;
+    oldBuffer = SetDT(aBuffer, aRect, aRotation);
   }
 
   void SetBackingBufferAndUpdateFrom(
-    gfxASurface* aBuffer,
-    gfxASurface* aSource, const nsIntRect& aRect, const nsIntPoint& aRotation,
+    DrawTarget* aBuffer,
+    DrawTarget* aSource, const nsIntRect& aRect, const nsIntPoint& aRotation,
     const nsIntRegion& aUpdateRegion);
 
+  void SetBackingBuffer(gfxASurface* aBuffer,
+                         const nsIntRect& aRect, const nsIntPoint& aRotation)
+   {
+     gfxIntSize prevSize = gfxIntSize(BufferRect().width, BufferRect().height);
+     gfxIntSize newSize = aBuffer->GetSize();
+     NS_ABORT_IF_FALSE(newSize == prevSize,
+                       "Swapped-in buffer size doesn't match old buffer's!");
+     nsRefPtr<gfxASurface> oldBuffer;
+     oldBuffer = SetBuffer(aBuffer, aRect, aRotation);
+   }
+ 
+   void SetBackingBufferAndUpdateFrom(
+     gfxASurface* aBuffer,
+     gfxASurface* aSource, const nsIntRect& aRect, const nsIntPoint& aRotation,
+     const nsIntRegion& aUpdateRegion);
+
 private:
+  BasicThebesLayerBuffer(DrawTarget* aBuffer,
+                         const nsIntRect& aRect, const nsIntPoint& aRotation)
+    // The size policy doesn't really matter here; this constructor is
+    // intended to be used for creating temporaries
+    : ThebesLayerBuffer(ContainsVisibleBounds)
+  {
+    SetDT(aBuffer, aRect, aRotation);
+  }
+  
   BasicThebesLayerBuffer(gfxASurface* aBuffer,
                          const nsIntRect& aRect, const nsIntPoint& aRotation)
     // The size policy doesn't really matter here; this constructor is
@@ -502,7 +531,7 @@ public:
                            ReadbackProcessor* aReadback);
 
   virtual void ClearCachedResources() { mBuffer.Clear(); mValidRegion.SetEmpty(); }
-  
+
   virtual already_AddRefed<gfxASurface>
   CreateBuffer(Buffer::ContentType aType, const nsIntSize& aSize)
   {
@@ -522,6 +551,12 @@ public:
     }
     return referenceSurface->CreateSimilarSurface(
       aType, gfxIntSize(aSize.width, aSize.height));
+  }
+  
+  virtual TemporaryRef<DrawTarget>
+  CreateDrawTarget(const IntSize& aSize, SurfaceFormat aFormat)
+  {
+    return gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(aSize, aFormat);
   }
 
   virtual void ComputeEffectiveTransforms(const gfx3DMatrix& aTransformToSurface)
@@ -831,6 +866,12 @@ BasicThebesLayerBuffer::DrawTo(ThebesLayer* aLayer,
   aTarget->Restore();
 }
 
+TemporaryRef<DrawTarget>
+BasicThebesLayerBuffer::CreateDrawTarget(const IntSize& aSize, SurfaceFormat aFormat)
+{
+  return mLayer->CreateDrawTarget(aSize, aFormat);
+}
+
 already_AddRefed<gfxASurface>
 BasicThebesLayerBuffer::CreateBuffer(ContentType aType, 
                                      const nsIntSize& aSize, PRUint32 aFlags)
@@ -842,6 +883,24 @@ void
 BasicThebesLayerBuffer::SetBackingBufferAndUpdateFrom(
   gfxASurface* aBuffer,
   gfxASurface* aSource, const nsIntRect& aRect, const nsIntPoint& aRotation,
+  const nsIntRegion& aUpdateRegion)
+{
+  SetBackingBuffer(aBuffer, aRect, aRotation);
+  nsRefPtr<gfxContext> destCtx =
+    GetContextForQuadrantUpdate(aUpdateRegion.GetBounds());
+  destCtx->SetOperator(gfxContext::OPERATOR_SOURCE);
+  if (IsClippingCheap(destCtx, aUpdateRegion)) {
+    gfxUtils::ClipToRegion(destCtx, aUpdateRegion);
+  }
+
+  BasicThebesLayerBuffer srcBuffer(aSource, aRect, aRotation);
+  srcBuffer.DrawBufferWithRotation(destCtx, 1.0);
+}
+
+void
+BasicThebesLayerBuffer::SetBackingBufferAndUpdateFrom(
+  DrawTarget* aBuffer,
+  DrawTarget* aSource, const nsIntRect& aRect, const nsIntPoint& aRotation,
   const nsIntRegion& aUpdateRegion)
 {
   SetBackingBuffer(aBuffer, aRect, aRotation);
@@ -2283,6 +2342,8 @@ private:
 
   virtual already_AddRefed<gfxASurface>
   CreateBuffer(Buffer::ContentType aType, const nsIntSize& aSize) MOZ_OVERRIDE;
+  virtual TemporaryRef<DrawTarget>
+  CreateDrawTarget(const IntSize& aSize, SurfaceFormat aFormat) MOZ_OVERRIDE;
 
   void DestroyBackBuffer()
   {
@@ -2464,6 +2525,20 @@ BasicShadowableThebesLayer::CreateBuffer(Buffer::ContentType aType,
   return BasicManager()->OpenDescriptor(mBackBuffer);
 }
 
+TemporaryRef<DrawTarget>
+BasicShadowableThebesLayer::CreateDrawTarget(const IntSize& aSize,
+                                             SurfaceFormat aFormat)
+{
+  if (!HasShadow()) {
+    return BasicThebesLayer::CreateDrawTarget(aSize, aFormat);
+  }
+
+  MOZ_LAYERS_LOG(("BasicShadowableThebes(%p): creating %d x %d buffer(x2)",
+                  this,
+                  aSize.width, aSize.height));
+
+  return NULL;
+}
 
 class BasicShadowableImageLayer : public BasicImageLayer,
                                   public BasicShadowableLayer
@@ -2806,8 +2881,15 @@ protected:
   virtual already_AddRefed<gfxASurface>
   CreateBuffer(ContentType, const nsIntSize&, PRUint32)
   {
+     NS_RUNTIMEABORT("ShadowThebesLayer can't paint content");
+     return nsnull;
+  }
+
+  virtual TemporaryRef<DrawTarget>
+  CreateDrawTarget(const IntSize&, SurfaceFormat)
+  {
     NS_RUNTIMEABORT("ShadowThebesLayer can't paint content");
-    return nsnull;
+    return NULL;
   }
 };
 

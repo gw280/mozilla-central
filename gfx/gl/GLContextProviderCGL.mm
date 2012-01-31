@@ -47,10 +47,13 @@
 #include "gfxFailure.h"
 #include "prenv.h"
 #include "mozilla/Preferences.h"
+#include "mozilla/gfx/2D.h"
 #include "sampler.h"
 
 namespace mozilla {
 namespace gl {
+
+using namespace gfx;
 
 static bool gUseDoubleBufferedWindows = true;
 
@@ -330,6 +333,55 @@ public:
     }
 
 protected:
+    TemporaryRef<DrawTarget>
+    GetDTForUpdate(const gfxIntSize& aSize, ImageFormat aFmt)
+    {
+        mGLContext->MakeCurrent();
+        if (!mGLContext->
+            IsExtensionSupported(GLContext::ARB_pixel_buffer_object)) 
+        {
+            return gfxPlatform::GetPlatform()->
+              CreateOffscreenDrawTarget(IntSize(aSize.width, aSize.height), FormatForFormat(aFmt));
+        }
+
+        if (!mPixelBuffer) {
+            mGLContext->fGenBuffers(1, &mPixelBuffer);
+        }
+        mGLContext->fBindBuffer(LOCAL_GL_PIXEL_UNPACK_BUFFER, mPixelBuffer);
+        PRInt32 size = aSize.width * 4 * aSize.height;
+
+        if (size > mPixelBufferSize) {
+            mGLContext->fBufferData(LOCAL_GL_PIXEL_UNPACK_BUFFER, size,
+                                    NULL, LOCAL_GL_STREAM_DRAW);
+            mPixelBufferSize = size;
+        }
+        unsigned char* data = 
+            (unsigned char*)mGLContext->
+                fMapBuffer(LOCAL_GL_PIXEL_UNPACK_BUFFER, 
+                           LOCAL_GL_WRITE_ONLY);
+
+        mGLContext->fBindBuffer(LOCAL_GL_PIXEL_UNPACK_BUFFER, 0);
+
+        if (!data) {
+            nsCAutoString failure;
+            failure += "Pixel buffer binding failed: ";
+            failure.AppendPrintf("%dx%d\n", aSize.width, aSize.height);
+            gfx::LogFailure(failure);
+
+            mGLContext->fBindBuffer(LOCAL_GL_PIXEL_UNPACK_BUFFER, 0);
+            return gfxPlatform::GetPlatform()->
+              CreateOffscreenDrawTarget(IntSize(aSize.width, aSize.height), FormatForFormat(aFmt));
+        }
+
+        RefPtr<DrawTarget> surf = 
+            gfxPlatform::GetPlatform()->
+                CreateDrawTargetForData(data, IntSize(aSize.width, aSize.height),
+                                        aSize.width * 4, FormatForFormat(aFmt));
+
+        mBoundPixelBuffer = true;
+        return surf;
+    }
+
     already_AddRefed<gfxASurface>
     GetSurfaceForUpdate(const gfxIntSize& aSize, ImageFormat aFmt)
     {

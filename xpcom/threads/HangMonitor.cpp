@@ -61,7 +61,7 @@ namespace mozilla { namespace HangMonitor {
  * A flag which may be set from within a debugger to disable the hang
  * monitor.
  */
-volatile bool gDebugDisableHangMonitor = false;
+volatile bool gDebugDisableHangMonitor = true;
 
 const char kHangMonitorPrefName[] = "hangmonitor.timeout";
 

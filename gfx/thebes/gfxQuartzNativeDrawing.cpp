@@ -64,16 +64,17 @@ gfxQuartzNativeDrawing::BeginNativeDrawing()
 
     gfxPoint deviceOffset;
     nsRefPtr<gfxASurface> surf = mContext->CurrentSurface(&deviceOffset.x, &deviceOffset.y);
-    if (!surf || surf->CairoStatus())
+    if (!mContext->GetDrawTarget() && (!surf || surf->CairoStatus()))
         return nsnull;
 
     // if this is a native Quartz surface, we don't have to redirect
     // rendering to our own CGContextRef; in most cases, we are able to
     // use the CGContextRef from the surface directly.  we can extend
     // this to support offscreen drawing fairly easily in the future.
-    if (surf->GetType() == gfxASurface::SurfaceTypeQuartz &&
-        (surf->GetContentType() == gfxASurface::CONTENT_COLOR ||
-         (surf->GetContentType() == gfxASurface::CONTENT_COLOR_ALPHA))) {
+    if (!mContext->GetDrawTarget() && 
+        (surf->GetType() == gfxASurface::SurfaceTypeQuartz &&
+         (surf->GetContentType() == gfxASurface::CONTENT_COLOR ||
+          (surf->GetContentType() == gfxASurface::CONTENT_COLOR_ALPHA)))) {
         mQuartzSurface = static_cast<gfxQuartzSurface*>(surf.get());
         mSurfaceContext = mContext;
 

@@ -1657,7 +1657,7 @@ public:
         }
     }
 
-    virtual gfxASurface* BeginUpdate(nsIntRegion& aRegion)
+    virtual gfxASurface* BeginUpdate(nsIntRegion& aRegion, mozilla::gfx::DrawTarget** aDrawTarget)
     {
         NS_ASSERTION(!mUpdateSurface, "BeginUpdate() without EndUpdate()?");
 

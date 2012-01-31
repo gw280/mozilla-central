@@ -51,6 +51,8 @@
 namespace mozilla {
 namespace layers {
 
+using namespace gfx;
+
 using gl::GLContext;
 using gl::TextureImage;
 
@@ -83,7 +85,7 @@ static void
 SetAntialiasingFlags(Layer* aLayer, gfxContext* aTarget)
 {
   nsRefPtr<gfxASurface> surface = aTarget->CurrentSurface();
-  if (surface->GetContentType() != gfxASurface::CONTENT_COLOR_ALPHA) {
+  if (!surface || surface->GetContentType() != gfxASurface::CONTENT_COLOR_ALPHA) {
     // Destination doesn't have alpha channel; no need to set any special flags
     return;
   }
@@ -466,10 +468,11 @@ BasicBufferOGL::BeginPaint(ContentType aContentType,
     }
 
     if (mode == Layer::SURFACE_COMPONENT_ALPHA) {
-#ifdef MOZ_GFX_OPTIMIZE_MOBILE
+#if MOZ_GFX_OPTIMIZE_MOBILE
       mode = Layer::SURFACE_SINGLE_CHANNEL_ALPHA;
 #else
-      if (!mLayer->GetParent() || !mLayer->GetParent()->SupportsComponentAlphaChildren()) {
+      if (!mLayer->GetParent() || !mLayer->GetParent()->SupportsComponentAlphaChildren() ||
+          gfxPlatform::UseAzureContentDrawing()) {
         mode = Layer::SURFACE_SINGLE_CHANNEL_ALPHA;
       } else {
         contentType = gfxASurface::CONTENT_COLOR;
@@ -695,8 +698,9 @@ BasicBufferOGL::BeginPaint(ContentType aContentType,
   // if it wants more to be repainted than we request.
   if (mode == Layer::SURFACE_COMPONENT_ALPHA) {
     nsIntRegion drawRegionCopy = result.mRegionToDraw;
-    gfxASurface *onBlack = mTexImage->BeginUpdate(drawRegionCopy);
-    gfxASurface *onWhite = mTexImageOnWhite->BeginUpdate(result.mRegionToDraw);
+    DrawTarget *temp;
+    gfxASurface *onBlack = mTexImage->BeginUpdate(drawRegionCopy, &temp);
+    gfxASurface *onWhite = mTexImageOnWhite->BeginUpdate(result.mRegionToDraw, &temp);
     NS_ASSERTION(result.mRegionToDraw == drawRegionCopy,
                  "BeginUpdate should always modify the draw region in the same way!");
     FillSurface(onBlack, result.mRegionToDraw, nsIntPoint(0,0), gfxRGBA(0.0, 0.0, 0.0, 1.0));
@@ -717,7 +721,13 @@ BasicBufferOGL::BeginPaint(ContentType aContentType,
     surf->SetAllowUseAsSource(false);
     result.mContext = new gfxContext(surf);
   } else {
-    result.mContext = new gfxContext(mTexImage->BeginUpdate(result.mRegionToDraw));
+    DrawTarget *dt = nsnull;
+    gfxASurface *surf = mTexImage->BeginUpdate(result.mRegionToDraw, &dt);
+    result.mContext = dt ? new gfxContext(dt) : new gfxContext(surf);
+    if (gfxPlatform::UseAzureContentDrawing()) {
+      nsIntRect rgnSize = result.mRegionToDraw.GetBounds();
+      result.mContext->Translate(-gfxPoint(rgnSize.x, rgnSize.y));
+    }
     if (mTexImage->GetContentType() == gfxASurface::CONTENT_COLOR_ALPHA) {
       gfxUtils::ClipToRegion(result.mContext, result.mRegionToDraw);
       result.mContext->SetOperator(gfxContext::OPERATOR_CLEAR);

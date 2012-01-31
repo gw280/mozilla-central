@@ -197,6 +197,11 @@ inline SurfaceFormat FormatForContent(gfxASurface::gfxContentType aContent)
   }
 }
 
+inline SurfaceFormat FormatForFormat(gfxASurface::gfxImageFormat aFormat)
+{
+  return FormatForContent(gfxASurface::ContentFromFormat(aFormat));
+}
+
 inline CompositionOp CompositionOpForOp(gfxContext::GraphicsOperator aOp)
 {
   switch (aOp) {

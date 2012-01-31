@@ -40,6 +40,7 @@
 
 #include "nsBaseWidget.h"
 #include "gfxPoint.h"
+#include "mozilla/gfx/2D.h"
 
 #include "nsTArray.h"
 
@@ -188,6 +189,8 @@ public:
 protected:
     void BringToFront();
     nsWindow *FindTopLevel();
+    bool DrawTo(mozilla::gfx::DrawTarget *targetSurface);
+    bool DrawTo(mozilla::gfx::DrawTarget *targetSurface, const nsIntRect &aRect);
     bool DrawTo(gfxASurface *targetSurface);
     bool DrawTo(gfxASurface *targetSurface, const nsIntRect &aRect);
     bool IsTopLevel();

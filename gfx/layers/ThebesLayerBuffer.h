@@ -40,6 +40,7 @@
 
 #include "gfxContext.h"
 #include "gfxASurface.h"
+#include "gfxPlatform.h"
 #include "nsRegion.h"
 
 namespace mozilla {
@@ -154,12 +155,38 @@ public:
    */
   virtual already_AddRefed<gfxASurface>
   CreateBuffer(ContentType aType, const nsIntSize& aSize, PRUint32 aFlags) = 0;
+  virtual TemporaryRef<gfx::DrawTarget>
+  CreateDrawTarget(const gfx::IntSize& aSize, gfx::SurfaceFormat aFormat) { return gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(aSize, aFormat); }
+  
+  TemporaryRef<gfx::DrawTarget>
+  CreateDrawTarget(const nsIntSize& aSize, ContentType aContent) 
+  {
+    gfx::SurfaceFormat format;
+    switch (aContent) {
+      case gfxASurface::CONTENT_COLOR:
+#ifdef MOZ_GFX_OPTIMIZE_MOBILE
+        format = gfx::FORMAT_R5G6B5;
+#else
+        format = gfx::FORMAT_B8G8R8X8;
+#endif
+        break;
+      case gfxASurface::CONTENT_COLOR_ALPHA:
+        format = gfx::FORMAT_B8G8R8A8;
+        break;
+      case gfxASurface::CONTENT_ALPHA:
+        format = gfx::FORMAT_A8;
+        break;
+    }
+    return CreateDrawTarget(gfx::IntSize(aSize.width, aSize.height), format);
+  }
+
 
   /**
    * Get the underlying buffer, if any. This is useful because we can pass
    * in the buffer as the default "reference surface" if there is one.
    * Don't use it for anything else!
    */
+  gfx::DrawTarget* GetDT() { return mDTBuffer; }
   gfxASurface* GetBuffer() { return mBuffer; }
 
 protected:
@@ -192,6 +219,17 @@ protected:
     mBufferRotation = aBufferRotation;
     return tmp.forget();
   }
+  
+  TemporaryRef<gfx::DrawTarget>
+  SetDT(gfx::DrawTarget* aBuffer,
+            const nsIntRect& aBufferRect, const nsIntPoint& aBufferRotation)
+  {
+    RefPtr<gfx::DrawTarget> tmp = mDTBuffer.forget();
+    mDTBuffer = aBuffer;
+    mBufferRect = aBufferRect;
+    mBufferRotation = aBufferRotation;
+    return tmp.forget();
+  }
 
   /**
    * Get a context at the specified resolution for updating |aBounds|,
@@ -208,6 +246,7 @@ private:
              aSize < mBufferRect.Size()));
   }
 
+  RefPtr<gfx::DrawTarget> mDTBuffer;
   nsRefPtr<gfxASurface> mBuffer;
   /** The area of the ThebesLayer that is covered by the buffer as a whole */
   nsIntRect             mBufferRect;

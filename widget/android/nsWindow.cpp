@@ -73,6 +73,7 @@ using mozilla::unused;
 #include "LayerManagerOGL.h"
 #include "GLContext.h"
 #include "GLContextProvider.h"
+#include "mozilla/gfx/2D.h"
 
 #include "nsTArray.h"
 
@@ -1011,6 +1012,13 @@ nsWindow::OnAndroidEvent(AndroidGeckoEvent *ae)
 }
 
 bool
+nsWindow::DrawTo(mozilla::gfx::DrawTarget *targetSurface)
+{
+    nsIntRect boundsRect(0, 0, mBounds.width, mBounds.height);
+    return DrawTo(targetSurface, boundsRect);
+}
+
+bool
 nsWindow::DrawTo(gfxASurface *targetSurface)
 {
     nsIntRect boundsRect(0, 0, mBounds.width, mBounds.height);
@@ -1117,6 +1125,104 @@ nsWindow::DrawTo(gfxASurface *targetSurface, const nsIntRect &invalidRect)
     return true;
 }
 
+bool
+nsWindow::DrawTo(mozilla::gfx::DrawTarget *targetSurface, const nsIntRect &invalidRect)
+{
+    if (!mIsVisible)
+        return false;
+
+    nsRefPtr<nsWindow> kungFuDeathGrip(this);
+    nsEventStatus status;
+    nsIntRect boundsRect(0, 0, mBounds.width, mBounds.height);
+
+    // Figure out if any of our children cover this widget completely
+    PRInt32 coveringChildIndex = -1;
+    for (PRUint32 i = 0; i < mChildren.Length(); ++i) {
+        if (mChildren[i]->mBounds.IsEmpty())
+            continue;
+
+        if (mChildren[i]->mBounds.Contains(boundsRect)) {
+            coveringChildIndex = PRInt32(i);
+        }
+    }
+
+    // If we have no covering child, then we need to render this.
+    if (coveringChildIndex == -1) {
+        nsPaintEvent event(true, NS_PAINT, this);
+
+        nsIntRect tileRect(0, 0, TILE_WIDTH, TILE_HEIGHT);
+        event.region = boundsRect.Intersect(invalidRect).Intersect(tileRect);
+
+        switch (GetLayerManager(nsnull)->GetBackendType()) {
+            case LayerManager::LAYERS_BASIC: {
+                nsRefPtr<gfxContext> ctx = new gfxContext(targetSurface);
+
+                {
+                    AutoLayerManagerSetup
+                      setupLayerManager(this, ctx, BasicLayerManager::BUFFER_NONE);
+
+                    status = DispatchEvent(&event);
+                }
+
+                // XXX uhh.. we can't just ignore this because we no longer have
+                // what we needed before, but let's keep drawing the children anyway?
+#if 0
+                if (status == nsEventStatus_eIgnore)
+                    return false;
+#endif
+
+                // XXX if we got an ignore for the parent, do we still want to draw the children?
+                // We don't really have a good way not to...
+                break;
+            }
+
+            case LayerManager::LAYERS_OPENGL: {
+                static_cast<mozilla::layers::LayerManagerOGL*>(GetLayerManager(nsnull))->
+                    SetClippingRegion(nsIntRegion(boundsRect));
+
+                status = DispatchEvent(&event);
+                break;
+            }
+
+            default:
+                NS_ERROR("Invalid layer manager");
+        }
+
+        // We had no covering child, so make sure we draw all the children,
+        // starting from index 0.
+        coveringChildIndex = 0;
+    }
+
+    mozilla::gfx::Matrix matrix;
+    
+    if (targetSurface)
+        matrix = targetSurface->GetTransform();
+
+    for (PRUint32 i = coveringChildIndex; i < mChildren.Length(); ++i) {
+        if (mChildren[i]->mBounds.IsEmpty() ||
+            !mChildren[i]->mBounds.Intersects(boundsRect)) {
+            continue;
+        }
+
+        if (targetSurface) {
+            mozilla::gfx::Matrix temp = matrix;
+            matrix.Translate(-mChildren[i]->mBounds.x, -mChildren[i]->mBounds.y);
+            targetSurface->SetTransform(temp);
+        }
+
+        bool ok = mChildren[i]->DrawTo(targetSurface, invalidRect);
+
+        if (!ok) {
+            ALOG("nsWindow[%p]::DrawTo child %d[%p] returned FALSE!", (void*) this, i, (void*)mChildren[i]);
+        }
+    }
+
+    if (targetSurface)
+        targetSurface->SetTransform(matrix);
+
+    return true;
+}
+
 void
 nsWindow::OnDraw(AndroidGeckoEvent *ae)
 {
@@ -1216,7 +1322,7 @@ nsWindow::OnDraw(AndroidGeckoEvent *ae)
     client.EndDrawing();
     layers::renderTraceEventEnd("Widget end draw", "434747");
     return;
-#endif
+#else
 
     if (!sSurfaceExists) {
         return;
@@ -1245,15 +1351,31 @@ nsWindow::OnDraw(AndroidGeckoEvent *ae)
                 return;
             }
 
-            nsRefPtr<gfxImageSurface> targetSurface =
-                new gfxImageSurface(bits,
-                                    gfxIntSize(mBounds.width, mBounds.height),
-                                    stride * 2,
-                                    gfxASurface::ImageFormatRGB16_565);
-            if (targetSurface->CairoStatus()) {
-                ALOG("### Failed to create a valid surface from the bitmap");
+            if (gfxPlatform::UseAzureContentDrawing()) {
+                // Wrap a Skia DrawTarget around our pixels
+                mozilla::RefPtr<mozilla::gfx::DrawTarget> targetSurface =
+                    gfxPlatform::GetPlatform()->
+                        CreateDrawTargetForData(bits,
+                                                mozilla::gfx::IntSize(mBounds.width, mBounds.height),
+                                                stride * 2, mozilla::gfx::FORMAT_R5G6B5);
+
+                if (!targetSurface) {
+                    ALOG("### Failed to create a valid surface from the bitmap");
+                } else {
+                    DrawTo(targetSurface);
+                }
             } else {
-                DrawTo(targetSurface);
+                nsRefPtr<gfxImageSurface> targetSurface =
+                    new gfxImageSurface(bits,
+                                        gfxIntSize(mBounds.width, mBounds.height),
+                                        stride * 2,
+                                        gfxASurface::ImageFormatRGB16_565);
+
+                if (targetSurface->CairoStatus()) {
+                    ALOG("### Failed to create a valid surface from the bitmap");
+                } else {
+                    DrawTo(targetSurface);
+                }
             }
 
             AndroidBridge::Bridge()->UnlockWindow(sNativeWindow);
@@ -1273,15 +1395,31 @@ nsWindow::OnDraw(AndroidGeckoEvent *ae)
                 return;
             }
 
-            nsRefPtr<gfxImageSurface> targetSurface =
-                new gfxImageSurface((unsigned char *)buf,
-                                    gfxIntSize(mBounds.width, mBounds.height),
-                                    mBounds.width * 2,
-                                    gfxASurface::ImageFormatRGB16_565);
-            if (targetSurface->CairoStatus()) {
-                ALOG("### Failed to create a valid surface from the bitmap");
+            if (gfxPlatform::UseAzureContentDrawing()) {
+                // Wrap a Skia DrawTarget around our pixels
+                mozilla::RefPtr<mozilla::gfx::DrawTarget> targetSurface =
+                    gfxPlatform::GetPlatform()->
+                        CreateDrawTargetForData((unsigned char *)buf,
+                                                mozilla::gfx::IntSize(mBounds.width, mBounds.height),
+                                                mBounds.width * 2, mozilla::gfx::FORMAT_R5G6B5);
+
+                if (!targetSurface) {
+                    ALOG("### Failed to create a valid surface from the bitmap");
+                } else {
+                    DrawTo(targetSurface);
+                }
             } else {
-                DrawTo(targetSurface);
+                nsRefPtr<gfxImageSurface> targetSurface =
+                    new gfxImageSurface((unsigned char *)buf,
+                                        gfxIntSize(mBounds.width, mBounds.height),
+                                        mBounds.width * 2,
+                                        gfxASurface::ImageFormatRGB16_565);
+
+                if (targetSurface->CairoStatus()) {
+                    ALOG("### Failed to create a valid surface from the bitmap");
+                } else {
+                    DrawTo(targetSurface);
+                }
             }
 
             AndroidBridge::Bridge()->UnlockBitmap(bitmap);
@@ -1304,15 +1442,30 @@ nsWindow::OnDraw(AndroidGeckoEvent *ae)
                 return;
             }
 
-            nsRefPtr<gfxImageSurface> targetSurface =
-                new gfxImageSurface((unsigned char *)buf,
-                                    gfxIntSize(mBounds.width, mBounds.height),
-                                    mBounds.width * 2,
-                                    gfxASurface::ImageFormatRGB16_565);
-            if (targetSurface->CairoStatus()) {
-                ALOG("### Failed to create a valid surface");
+            if (gfxPlatform::UseAzureContentDrawing()) {
+                // Wrap a Skia DrawTarget around our pixels
+                mozilla::RefPtr<mozilla::gfx::DrawTarget> targetSurface =
+                    gfxPlatform::GetPlatform()->
+                        CreateDrawTargetForData((unsigned char *)buf,
+                                                mozilla::gfx::IntSize(mBounds.width, mBounds.height),
+                                                mBounds.width * 2, mozilla::gfx::FORMAT_R5G6B5);
+
+                if (!targetSurface) {
+                    ALOG("### Failed to create a valid surface from the bitmap");
+                } else {
+                    DrawTo(targetSurface);
+                }
             } else {
-                DrawTo(targetSurface);
+                nsRefPtr<gfxImageSurface> targetSurface =
+                    new gfxImageSurface((unsigned char *)buf,
+                                        gfxIntSize(mBounds.width, mBounds.height),
+                                        mBounds.width * 2,
+                                        gfxASurface::ImageFormatRGB16_565);
+                if (targetSurface->CairoStatus()) {
+                    ALOG("### Failed to create a valid surface");
+                } else {
+                    DrawTo(targetSurface);
+                }
             }
 
             sview.Draw2D(bytebuf, mBounds.width * 2);
@@ -1341,6 +1494,7 @@ nsWindow::OnDraw(AndroidGeckoEvent *ae)
 
         sview.EndDrawing();
     }
+#endif
 }
 
 void
