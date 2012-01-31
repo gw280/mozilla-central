@@ -1129,6 +1129,7 @@ BasicCanvasLayer::UpdateSurface(gfxASurface* aDestSurface)
 {
   if (mDrawTarget) {
     mDrawTarget->Flush();
+    mSurface->MarkDirty();
   }
 
   if (!mGLContext && aDestSurface) {

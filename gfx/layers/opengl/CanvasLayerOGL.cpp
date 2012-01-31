@@ -193,7 +193,9 @@ CanvasLayerOGL::UpdateSurface()
     if (mDrawTarget) {
       // TODO: This is suboptimal - We should have direct handling for the surface types instead of
       // going via a gfxASurface.
+      mDrawTarget->Flush();
       updatedAreaSurface = gfxPlatform::GetPlatform()->GetThebesSurfaceForDrawTarget(mDrawTarget);
+      updatedAreaSurface->MarkDirty();
     } else if (mCanvasSurface) {
       updatedAreaSurface = mCanvasSurface;
     } else if (mCanvasGLContext) {
