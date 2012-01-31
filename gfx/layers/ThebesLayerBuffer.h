@@ -100,6 +100,7 @@ public:
   void Clear()
   {
     mBuffer = nsnull;
+    mDTBuffer = nsnull;
     mBufferRect.SetEmpty();
   }
 

@@ -741,7 +741,14 @@ static void innerstrokedot8(FDot8 L, FDot8 T, FDot8 R, FDot8 B,
     SkASSERT(L < R && T < B);
 
     int top = T >> 8;
-    if (top == ((B - 1) >> 8)) {   // just one scanline high
+    // XXXmattwoodrow: Removed the -1 here.
+    // This is getting called with B=32768 T=32512
+    // top = 127
+    // (B-1) >> 8 = 127
+    // B >> 8 = 128
+    // B - T = 256 which asserts in inner_scanline -> InvAlphaMul -> SkAlphaMulRound
+    // Assuming this is incorrect, but it fixes the crash for now.
+    if (top == ((B) >> 8)) {   // just one scanline high
         inner_scanline(L, top, R, B - T, blitter);
         return;
     }

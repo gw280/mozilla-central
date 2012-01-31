@@ -237,6 +237,7 @@ pref("gfx.canvas.azure.enabled", true);
 #endif
 #ifdef XP_MACOSX
 pref("gfx.canvas.azure.enabled", true);
+pref("gfx.content.azure.enabled", true);
 #endif
 
 #ifdef ANDROID

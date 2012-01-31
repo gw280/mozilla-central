@@ -3803,9 +3803,9 @@ nsCanvasRenderingContext2DAzure::DrawWindow(nsIDOMWindow* aWindow, float aX, flo
   nsRefPtr<gfxASurface> drawSurf;
   GetThebesSurface(getter_AddRefs(drawSurf));
 
-  nsRefPtr<gfxContext> thebes = new gfxContext(drawSurf);
-
   Matrix matrix = mTarget->GetTransform();
+  nsRefPtr<gfxContext> thebes = new gfxContext(mTarget);
+
   thebes->SetMatrix(gfxMatrix(matrix._11, matrix._12, matrix._21,
                               matrix._22, matrix._31, matrix._32));
 
