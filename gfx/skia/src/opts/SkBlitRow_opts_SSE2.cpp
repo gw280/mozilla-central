@@ -325,7 +325,8 @@ void Color32_SSE2(SkPMColor dst[], const SkPMColor src[], int count,
     if (255 == colorA) {
         sk_memset32(dst, color, count);
     } else {
-        unsigned scale = 256 - SkAlpha255To256(colorA);
+        // This was changed to match srcover_modeproc and fixes some mozilla tests
+        unsigned scale = 256 - colorA;
 
         if (count >= 4) {
             SkASSERT(((size_t)dst & 0x03) == 0);
