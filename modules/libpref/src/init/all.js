@@ -235,6 +235,9 @@ pref("gfx.canvas.azure.enabled", true);
 pref("gfx.canvas.azure.enabled", true);
 #endif
 #endif
+#ifdef XP_MACOSX
+pref("gfx.canvas.azure.enabled", true);
+#endif
 
 #ifdef ANDROID
 pref("gfx.textures.poweroftwo.force-enabled", false);
