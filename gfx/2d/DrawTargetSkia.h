@@ -128,6 +128,9 @@ public:
     stream << "DrawTargetSkia(" << this << ")";
     return stream.str();
   }
+
+  void *GetNativeSurface(NativeSurfaceType aType);
+
 private:
   friend class SourceSurfaceSkia;
   void AppendSnapshot(SourceSurfaceSkia* aSnapshot);

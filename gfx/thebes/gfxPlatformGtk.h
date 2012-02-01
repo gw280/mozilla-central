@@ -142,7 +142,12 @@ public:
         // this, we'll only disable this for maemo.
         return true;
 #else
-        return false;
+        if (gfxPlatform::UseAzureContentDrawing()) {
+            // We want to use image surfaces with Azure
+            return true;
+        } else {
+            return false;
+        }
 #endif
     }
 

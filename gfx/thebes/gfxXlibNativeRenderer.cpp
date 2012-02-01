@@ -42,10 +42,12 @@
 #include "gfxXlibSurface.h"
 #include "gfxImageSurface.h"
 #include "gfxContext.h"
+#include "gfxPlatform.h"
 #include "gfxAlphaRecovery.h"
 #include "cairo-xlib.h"
 #include "cairo-xlib-xrender.h"
 
+#include "skia/SkBitmap.h"
 #if 0
 #include <stdio.h>
 #define NATIVE_DRAWING_NOTE(m) fprintf(stderr, m)
@@ -86,6 +88,33 @@
       Sure would be nice to have an X extension or GL to do this for us on the
       server...
 */
+
+// A simple RAII-like class to ensure that pixels are locked
+// and unlocked when our use goes in/out of scope
+
+class BitmapPixelManager {
+public:
+    BitmapPixelManager(SkBitmap* aBitmap) :
+        mBitmap(aBitmap)
+    {
+        if (mBitmap)
+            mBitmap->lockPixels();
+    }
+
+    ~BitmapPixelManager()
+    {
+        if (mBitmap)
+            mBitmap->unlockPixels();
+    }
+
+    void NotifyUpdate() const
+    {
+        if (mBitmap)
+            mBitmap->notifyPixelsChanged();
+    }
+private:
+    SkBitmap* mBitmap;
+};
 
 static cairo_bool_t
 _convert_coord_to_int (double coord, PRInt32 *v)
@@ -543,7 +572,31 @@ gfxXlibNativeRenderer::Draw(gfxContext* ctx, nsIntSize size,
     gfxPoint offset(drawingRect.x, drawingRect.y);
 
     DrawingMethod method;
-    nsRefPtr<gfxASurface> target = ctx->CurrentSurface();
+
+    nsRefPtr<gfxASurface> target;
+    mozilla::gfx::DrawTarget* drawTarget = ctx->GetDrawTarget();
+
+    SkBitmap* bitmap = nsnull;
+
+    if (ctx->IsCairo()) {
+        target = ctx->CurrentSurface();
+    } else if (drawTarget) {
+        bitmap = static_cast<SkBitmap*>(drawTarget->GetNativeSurface(
+                    mozilla::gfx::NATIVE_SURFACE_SKIA_BITMAP));
+        target = new gfxImageSurface(static_cast<unsigned char*>(bitmap->getPixels()),
+                                     gfxIntSize(bitmap->width(), bitmap->height()),
+                                     bitmap->rowBytes(),
+                                     gfxASurface::ImageFormatARGB32);
+        gfxMatrix matrix = ctx->CurrentMatrix();
+        ctx = new gfxContext(target);
+        ctx->SetMatrix(matrix);
+    } else {
+        return;
+    }
+
+    // This handles locking/unlocking the bitmap pixel buffer for us
+    BitmapPixelManager pixelManager(bitmap);
+
     nsRefPtr<gfxXlibSurface> tempXlibSurface = 
         CreateTempXlibSurface(target, drawingRect.Size(),
                               canDrawOverBackground, flags, screen, visual,
@@ -583,6 +636,7 @@ gfxXlibNativeRenderer::Draw(gfxContext* ctx, nsIntSize size,
     if (method != eAlphaExtraction) {
         ctx->SetSource(tempXlibSurface, offset);
         ctx->Paint();
+        pixelManager.NotifyUpdate();
         if (result) {
             result->mSurface = tempXlibSurface;
             /* fill in the result with what we know, which is really just what our
@@ -643,5 +697,6 @@ gfxXlibNativeRenderer::Draw(gfxContext* ctx, nsIntSize size,
         }
         
         ctx->Paint();
+        pixelManager.NotifyUpdate();
     }
 }

@@ -897,7 +897,7 @@ public:
         sGLXLibrary.DestroyPixmap(mPixmap);
     }
 
-    virtual gfxASurface* BeginUpdate(nsIntRegion& aRegion)
+    virtual gfxASurface* BeginUpdate(nsIntRegion& aRegion, mozilla::gfx::DrawTarget** aDrawTarget)
     {
         mInUpdate = true;
         return mUpdateSurface;
