@@ -23,7 +23,7 @@
 #include <fontconfig/fontconfig.h>
 
 #include "SkTypeface.h"
-#include "SkUnicodeHelpers.h"
+#include "SkUtils.h"
 
 namespace {
 
@@ -325,18 +325,10 @@ bool FontConfigDirect::Match(std::string* result_family,
     FcCharSet* charset = NULL;
     if (data) {
         charset = FcCharSetCreate();
-        const uint16_t* chars = (const uint16_t*) data;
-        size_t num_chars = characters_bytes / 2;
-        for (size_t i = 0; i < num_chars; ++i) {
-            if (SK_U16_IS_SURROGATE(chars[i])
-                && SK_U16_IS_SURROGATE_LEAD(chars[i])
-                && i != num_chars - 1
-                && SK_U16_IS_TRAIL(chars[i + 1])) {
-                FcCharSetAddChar(charset, SK_U16_GET_SUPPLEMENTARY(chars[i], chars[i+1]));
-                i++;
-            } else {
-                FcCharSetAddChar(charset, chars[i]);
-            }
+        const uint16_t* chars = (const uint16_t*)data;
+        const uint16_t* stop = chars + characters_bytes/2;
+        while (chars < stop) {
+            FcCharSetAddChar(charset, SkUTF16_NextUnichar(&chars));
         }
         FcPatternAddCharSet(pattern, FC_CHARSET, charset);
         FcCharSetDestroy(charset);  // pattern now owns it.
