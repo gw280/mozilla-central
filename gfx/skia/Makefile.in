@@ -362,7 +362,15 @@ CPPSRCS += \
 	SkBlitRow_opts_arm.cpp \
 	opts_check_arm.cpp \
 	$(NULL)
+
+ifdef HAVE_ARM_NEON
+SSRCS += memset16_neon.S memset32_neon.S
+DEFINES += -D__ARM_HAVE_NEON
+OS_CXXFLAGS += -mfpu=neon
+OS_CFLAGS += -mfpu=neon
+else
 SSRCS += memset.arm.S
+endif
 else
 CPPSRCS += \
 	SkBitmapProcState_opts_none.cpp \
