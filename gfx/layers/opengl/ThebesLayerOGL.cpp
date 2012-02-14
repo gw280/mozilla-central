@@ -468,7 +468,7 @@ BasicBufferOGL::BeginPaint(ContentType aContentType,
     }
 
     if (mode == Layer::SURFACE_COMPONENT_ALPHA) {
-#if MOZ_GFX_OPTIMIZE_MOBILE
+#ifdef MOZ_GFX_OPTIMIZE_MOBILE
       mode = Layer::SURFACE_SINGLE_CHANNEL_ALPHA;
 #else
       if (!mLayer->GetParent() || !mLayer->GetParent()->SupportsComponentAlphaChildren() ||

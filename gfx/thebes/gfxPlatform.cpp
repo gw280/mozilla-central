@@ -1082,6 +1082,7 @@ gfxPlatform::AppendPrefLang(eFontPrefLang aPrefLangs[], PRUint32& aLen, eFontPre
 bool
 gfxPlatform::UseAzureContentDrawing()
 {
+  return true;
   static bool sAzureContentDrawingEnabled;
   static bool sAzureContentDrawingPrefCached = false;
 

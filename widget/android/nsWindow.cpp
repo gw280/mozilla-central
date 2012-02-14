@@ -1150,7 +1150,7 @@ nsWindow::DrawTo(mozilla::gfx::DrawTarget *targetSurface, const nsIntRect &inval
     if (coveringChildIndex == -1) {
         nsPaintEvent event(true, NS_PAINT, this);
 
-        nsIntRect tileRect(0, 0, TILE_WIDTH, TILE_HEIGHT);
+        nsIntRect tileRect(0, 0, gAndroidBounds.width, gAndroidBounds.height);
         event.region = boundsRect.Intersect(invalidRect).Intersect(tileRect);
 
         switch (GetLayerManager(nsnull)->GetBackendType()) {

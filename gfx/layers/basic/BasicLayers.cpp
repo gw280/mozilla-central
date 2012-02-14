@@ -2537,7 +2537,40 @@ BasicShadowableThebesLayer::CreateDrawTarget(const IntSize& aSize,
                   this,
                   aSize.width, aSize.height));
 
-  return NULL;
+  if (IsSurfaceDescriptorValid(mBackBuffer)) {
+    BasicManager()->DestroyedThebesBuffer(BasicManager()->Hold(this),
+                                          mBackBuffer);
+    mBackBuffer = SurfaceDescriptor();
+  }
+
+  // XXX error handling
+  if (!BasicManager()->AllocBuffer(gfxIntSize(aSize.width, aSize.height),
+                                   mozilla::gfx::ContentForFormat(aFormat),
+                                   &mBackBuffer)) {
+      enum { buflen = 256 };
+      char buf[buflen];
+      PR_snprintf(buf, buflen,
+                  "creating ThebesLayer 'back buffer' failed! width=%d, height=%d, type=%x",
+                  aSize.width, aSize.height, int(mozilla::gfx::ContentForFormat(aFormat)));
+      NS_RUNTIMEABORT(buf);
+  }
+
+  NS_ABORT_IF_FALSE(!mIsNewBuffer,
+                    "Bad! Did we create a buffer twice without painting?");
+
+  mIsNewBuffer = true;
+
+  mozilla::ipc::Shmem shm = mBackBuffer.get_Shmem();
+  unsigned char* data = shm.get<unsigned char>();
+
+  size_t stride;
+
+  if (aFormat == FORMAT_R5G6B5)
+      stride = 2 * aSize.width;
+  else
+      stride = 4 * aSize.width;
+
+  return gfxPlatform::GetPlatform()->CreateDrawTargetForData(data, aSize, stride, aFormat);
 }
 
 class BasicShadowableImageLayer : public BasicImageLayer,

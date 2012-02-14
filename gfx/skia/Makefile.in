@@ -367,10 +367,6 @@ CPPSRCS += \
 	$(NULL)
 SSRCS += memset.arm.S
 
-# NEON is slower on Skia, so forcibly use vfpv3
-OS_CXXFLAGS += -mfpu=vfpv3
-OS_CFLAGS += -mfpu=vfpv3
-
 else
 CPPSRCS += \
 	SkBitmapProcState_opts_none.cpp \
