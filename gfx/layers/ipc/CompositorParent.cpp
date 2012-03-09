@@ -206,6 +206,23 @@ CompositorParent::Composite()
 #endif
 }
 
+// Go down shadow layer tree, setting properties to match their non-shadow
+// counterparts.
+static void
+SetShadowProperties(Layer* aLayer)
+{
+  // FIXME: Bug 717688 -- Do these updates in ShadowLayersParent::RecvUpdate.
+  ShadowLayer* shadow = aLayer->AsShadowLayer();
+  shadow->SetShadowTransform(aLayer->GetTransform());
+  shadow->SetShadowVisibleRegion(aLayer->GetVisibleRegion());
+  shadow->SetShadowClipRect(aLayer->GetClipRect());
+
+  for (Layer* child = aLayer->GetFirstChild();
+      child; child = child->GetNextSibling()) {
+    SetShadowProperties(child);
+  }
+}
+
 #ifdef MOZ_WIDGET_ANDROID
 // Do a breadth-first search to find the first layer in the tree that is
 // scrollable.
@@ -213,6 +230,16 @@ Layer*
 CompositorParent::GetPrimaryScrollableLayer()
 {
   Layer* root = mLayerManager->GetRoot();
+
+  Layer* discardLayer = root->GetFirstChild();
+
+  while (discardLayer) {
+    if (!discardLayer->AsContainerLayer()) {
+      discardLayer->IntersectClipRect(nsIntRect());
+      SetShadowProperties(discardLayer);
+    }
+    discardLayer = discardLayer->GetNextSibling();
+  }
 
   nsTArray<Layer*> queue;
   queue.AppendElement(root);
@@ -239,21 +266,14 @@ CompositorParent::GetPrimaryScrollableLayer()
 }
 #endif
 
-// Go down shadow layer tree, setting properties to match their non-shadow
-// counterparts.
-static void
-SetShadowProperties(Layer* aLayer)
+static double GetXScale(const gfx3DMatrix& aTransform)
 {
-  // FIXME: Bug 717688 -- Do these updates in ShadowLayersParent::RecvUpdate.
-  ShadowLayer* shadow = aLayer->AsShadowLayer();
-  shadow->SetShadowTransform(aLayer->GetTransform());
-  shadow->SetShadowVisibleRegion(aLayer->GetVisibleRegion());
-  shadow->SetShadowClipRect(aLayer->GetClipRect());
+  return aTransform._11;
+}
 
-  for (Layer* child = aLayer->GetFirstChild();
-      child; child = child->GetNextSibling()) {
-    SetShadowProperties(child);
-  }
+static double GetYScale(const gfx3DMatrix& aTransform)
+{
+  return aTransform._22;
 }
 
 void
