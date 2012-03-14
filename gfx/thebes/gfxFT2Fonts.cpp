@@ -660,3 +660,4 @@ gfxFT2Font::FillGlyphDataForChar(PRUint32 ch, CachedGlyphData *gd)
     gd->rsbDelta = face->glyph->rsb_delta;
     gd->xAdvance = face->glyph->advance.x;
 }
+

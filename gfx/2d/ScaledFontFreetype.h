@@ -40,6 +40,8 @@
 
 #include "ScaledFontBase.h"
 
+typedef struct FT_FaceRec_* FT_Face;
+
 namespace mozilla {
 namespace gfx {
 
@@ -47,7 +49,12 @@ class ScaledFontFreetype : public ScaledFontBase
 {
 public:
 
-  ScaledFontFreetype(gfxFont* aFont, Float aSize);
+  ScaledFontFreetype(FT_Face aFace, Float aSize);
+
+  virtual SkTypeface* GetSkTypeface();
+
+private:
+  FT_Face mFace;
 };
 
 }

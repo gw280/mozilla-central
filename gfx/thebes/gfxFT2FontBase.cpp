@@ -52,10 +52,12 @@ gfxFT2FontBase::gfxFT2FontBase(cairo_scaled_font_t *aScaledFont,
       mHasMetrics(false)
 {
     cairo_scaled_font_reference(mScaledFont);
+    mFace = cairo_ft_scaled_font_lock_face(mScaledFont);
 }
 
 gfxFT2FontBase::~gfxFT2FontBase()
 {
+    cairo_ft_scaled_font_unlock_face(mScaledFont);
     cairo_scaled_font_destroy(mScaledFont);
 }
 

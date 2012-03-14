@@ -20,6 +20,7 @@
 #include "SkString.h"
 #include "SkTemplates.h"
 #include "SkThread.h"
+#include "SkTypefaceCache.h"
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -53,6 +54,7 @@
 
 //#define ENABLE_GLYPH_SPEW     // for tracing calls
 //#define DUMP_STRIKE_CREATION
+//#define ENABLE_FACE_SPEW      // for tracing FT_Face objects we don't own
 
 #ifdef SK_DEBUG
     #define SkASSERT_CONTINUE(pred)                                                         \
@@ -98,6 +100,82 @@ static bool         gLCDSupport;  // true iff LCD is supported by the runtime.
 static const uint8_t* gGammaTables[2];
 
 /////////////////////////////////////////////////////////////////////////
+
+class SkFTLinuxTypeface : public SkTypeface {
+public:
+    static SkTypeface* CreateTypeface(FT_Face face) {
+        SkASSERT(face != NULL);
+
+        FT_Reference_Face(face);
+
+        int style = SkTypeface::kNormal;
+
+        if (face->style_flags & FT_STYLE_FLAG_ITALIC)
+            style |= SkTypeface::kItalic;
+
+        if (face->style_flags & FT_STYLE_FLAG_BOLD)
+            style |= SkTypeface::kBold;
+
+        bool isFixedWidth = face->face_flags & FT_FACE_FLAG_FIXED_WIDTH;
+
+        SkFontID newId = SkTypefaceCache::NewFontID();
+        return SkNEW_ARGS(SkFTLinuxTypeface, (face, (Style)style, newId, isFixedWidth));
+    }
+
+    virtual ~SkFTLinuxTypeface() {
+        FT_Done_Face(fFace);
+    }
+    
+    FT_Face getFace() {
+        return fFace;
+    }
+
+private:
+    SkFTLinuxTypeface(FT_Face face, Style style, SkFontID id, bool isFixedWidth)
+        : SkTypeface(style, id, isFixedWidth),
+          fFace(face) { }
+
+    FT_Face fFace;
+};
+
+static bool FindByFTFace(SkTypeface* typeface, SkTypeface::Style style, void* ctx) {
+    FT_Face face = static_cast<FT_Face>(ctx);
+    SkFTLinuxTypeface* ftTypeface = static_cast<SkFTLinuxTypeface*>(typeface);
+    FT_Face comparisonFace = static_cast<FT_Face>(ftTypeface->getFace());
+
+    return face == comparisonFace;
+}
+
+SkTypeface* SkCreateTypefaceFromFTFace(FT_Face face)
+{
+    SkTypeface* typeface = SkTypefaceCache::FindByProc(FindByFTFace, face);
+    if (typeface) {
+#ifdef ENABLE_FACE_SPEW
+        SkDEBUGF(("Found SkTypeface object %x for FT_Face %x\n", typeface, face));
+#endif
+        typeface->ref();
+    } else {
+#ifdef ENABLE_FACE_SPEW
+        SkDEBUGF(("Creating an SkTypeface object for FT_Face %x\n", face));
+#endif
+        typeface = SkFTLinuxTypeface::CreateTypeface(face);
+        SkTypefaceCache::Add(typeface, typeface->style());
+    }
+
+    return typeface;
+}
+
+FT_Face GetFTFaceById(SkFontID id) {
+#ifdef ENABLE_FACE_SPEW
+    SkDEBUGF(("Retrieving SkTypeface object for SkFontID %d\n", id));
+#endif
+    SkFTLinuxTypeface* typeface = (SkFTLinuxTypeface*)SkTypefaceCache::FindByID(id);
+    if (typeface) {
+        return typeface->getFace();
+    }
+
+    return NULL;
+}
 
 // See http://freetype.sourceforge.net/freetype2/docs/reference/ft2-bitmap_handling.html#FT_Bitmap_Embolden
 // This value was chosen by eyeballing the result in Firefox and trying to match it.
@@ -167,14 +245,27 @@ struct SkFaceRec {
     SkFaceRec*      fNext;
     FT_Face         fFace;
     FT_StreamRec    fFTStream;
+    bool            fOwnsFace;
     SkStream*       fSkStream;
     uint32_t        fRefCnt;
     uint32_t        fFontID;
 
     // assumes ownership of the stream, will call unref() when its done
     SkFaceRec(SkStream* strm, uint32_t fontID);
+    SkFaceRec(FT_Face face, uint32_t fontID) {
+        fFace = face;
+        fFontID = fontID;
+        fSkStream = NULL;
+        fOwnsFace = false;
+    }
+
     ~SkFaceRec() {
-        fSkStream->unref();
+        if (fOwnsFace) {
+            FT_Done_Face(fFace);
+        }
+        if (fSkStream) {
+            fSkStream->unref();
+        }
     }
 };
 
@@ -210,7 +301,7 @@ extern "C" {
 }
 
 SkFaceRec::SkFaceRec(SkStream* strm, uint32_t fontID)
-        : fSkStream(strm), fFontID(fontID) {
+        : fSkStream(strm), fFontID(fontID), fOwnsFace(true) {
 //    SkDEBUGF(("SkFaceRec: opening %s (%p)\n", key.c_str(), strm));
 
     sk_bzero(&fFTStream, sizeof(fFTStream));
@@ -220,8 +311,28 @@ SkFaceRec::SkFaceRec(SkStream* strm, uint32_t fontID)
     fFTStream.close = sk_stream_close;
 }
 
+static SkFaceRec* ref_ft_face(FT_Face face, uint32_t fontID) {
+    SkFaceRec* rec = gFaceRecHead;
+
+    // See if we already have an SkFaceRec for this FT_Face
+    while (rec) {
+        if (rec->fFace == face) {
+            rec->fRefCnt += 1;
+            return rec;
+        }
+        rec = rec->fNext;
+    }
+
+    rec = SkNEW_ARGS(SkFaceRec, (face, fontID));
+    rec->fNext = gFaceRecHead;
+    gFaceRecHead = rec;
+    rec->fRefCnt = 1;
+    return rec;
+
+}
+
 // Will return 0 on failure
-static SkFaceRec* ref_ft_face(uint32_t fontID) {
+static SkFaceRec* ref_ft_face_by_id(uint32_t fontID) {
     SkFaceRec* rec = gFaceRecHead;
     while (rec) {
         if (rec->fFontID == fontID) {
@@ -287,7 +398,6 @@ static void unref_ft_face(FT_Face face) {
                 } else {
                     gFaceRecHead = next;
                 }
-                FT_Done_Face(face);
                 SkDELETE(rec);
             }
             return;
@@ -428,10 +538,18 @@ SkAdvancedTypefaceMetrics* SkFontHost::GetAdvancedTypefaceMetrics(
         libInit = gFTLibrary;
     }
     SkAutoTCallIProc<struct FT_LibraryRec_, FT_Done_FreeType> ftLib(libInit);
-    SkFaceRec* rec = ref_ft_face(fontID);
+    FT_Face face = GetFTFaceById(fontID);
+
+    SkFaceRec* rec;
+    if (face)
+        rec = ref_ft_face(face, fontID);
+    else
+        rec = ref_ft_face_by_id(fontID);
+
     if (NULL == rec)
         return NULL;
-    FT_Face face = rec->fFace;
+
+    face = rec->fFace;
 
     SkAdvancedTypefaceMetrics* info = new SkAdvancedTypefaceMetrics;
     info->fFontName.set(FT_Get_Postscript_Name(face));
@@ -670,7 +788,7 @@ void SkFontHost::FilterRec(SkScalerContext::Rec* rec) {
 #ifdef SK_BUILD_FOR_ANDROID
 uint32_t SkFontHost::GetUnitsPerEm(SkFontID fontID) {
     SkAutoMutexAcquire ac(gFTMutex);
-    SkFaceRec *rec = ref_ft_face(fontID);
+    SkFaceRec *rec = ref_ft_face_by_id(fontID);
     uint16_t unitsPerEm = 0;
 
     if (rec != NULL && rec->fFace != NULL) {
@@ -697,12 +815,19 @@ SkScalerContext_FreeType::SkScalerContext_FreeType(const SkDescriptor* desc)
     // load the font file
     fFTSize = NULL;
     fFace = NULL;
-    fFaceRec = ref_ft_face(fRec.fFontID);
-    if (NULL == fFaceRec) {
-        return;
-    }
-    fFace = fFaceRec->fFace;
 
+    FT_Face face = GetFTFaceById(fRec.fFontID);
+
+    if (face) {
+        fFaceRec = ref_ft_face(face, fRec.fFontID);
+        fFace = face;
+    } else {
+        fFaceRec = ref_ft_face_by_id(fRec.fFontID);
+        if (NULL == fFaceRec) {
+            return;
+        }
+        fFace = fFaceRec->fFace;
+    }
     // compute our factors from the record
 
     SkMatrix    m;
@@ -867,7 +992,7 @@ FT_Error SkScalerContext_FreeType::setupSize() {
         killing all of the contexts when we know that a given fontID is going
         away...
      */
-    if (!SkFontHost::ValidFontID(fRec.fFontID)) {
+    if (!SkFontHost::ValidFontID(fRec.fFontID) && !SkTypefaceCache::FindByID(fRec.fFontID)) {
         return (FT_Error)-1;
     }
 
@@ -1533,3 +1658,4 @@ SkTypeface::Style find_name_and_attributes(SkStream* stream, SkString* name,
     FT_Done_FreeType(library);
     return (SkTypeface::Style)style;
 }
+

@@ -52,7 +52,7 @@ EXPORT_LIBRARY  = 1
 
 EXPORTS_NAMESPACES = skia
 
-DEFINES += -DSK_A32_SHIFT=24 -DSK_R32_SHIFT=16 -DSK_G32_SHIFT=8 -DSK_B32_SHIFT=0 -DSK_OVERRIDE_GLOBAL_NEW
+DEFINES += -DSK_A32_SHIFT=24 -DSK_R32_SHIFT=16 -DSK_G32_SHIFT=8 -DSK_B32_SHIFT=0
 
 LOCAL_INCLUDES += \
 	-I$(srcdir)/include/core \
@@ -320,7 +320,11 @@ CPPSRCS += \
 	SkTime_Unix.cpp \
 	$(NULL)
 
-DEFINES += -DSK_BUILD_FOR_ANDROID_NDK
+EXPORTS_skia += \
+	include/ports/SkTypeface_freetype.h \
+	$(NULL)
+
+DEFINES += -DSK_BUILD_FOR_ANDROID_NDK -DSK_OVERRIDE_GLOBAL_NEW
 OS_CXXFLAGS += $(CAIRO_FT_CFLAGS)
 endif
 
@@ -334,6 +338,10 @@ CPPSRCS += \
 	SkTime_Unix.cpp \
 	SkMMapStream.cpp \
 	SkOSFile.cpp \
+	$(NULL)
+
+EXPORTS_skia += \
+	include/ports/SkTypeface_freetype.h \
 	$(NULL)
 
 OS_CXXFLAGS += $(MOZ_PANGO_CFLAGS)

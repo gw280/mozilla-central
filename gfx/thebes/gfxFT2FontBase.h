@@ -47,6 +47,8 @@
 #include "gfxContext.h"
 #include "gfxFont.h"
 
+typedef struct FT_FaceRec_* FT_Face;
+
 class gfxFT2FontBase : public gfxFont {
 public:
     gfxFT2FontBase(cairo_scaled_font_t *aScaledFont,
@@ -65,6 +67,8 @@ public:
     virtual bool ProvidesGlyphWidths() { return true; }
     virtual PRInt32 GetGlyphWidth(gfxContext *aCtx, PRUint16 aGID);
 
+    virtual FT_Face GetFTFace() { return mFace; }
+
     cairo_scaled_font_t *CairoScaledFont() { return mScaledFont; };
     virtual bool SetupCairoFont(gfxContext *aContext);
 
@@ -72,6 +76,7 @@ protected:
     PRUint32 mSpaceGlyph;
     bool mHasMetrics;
     Metrics mMetrics;
+    FT_Face mFace;
 };
 
 #endif /* GFX_FT2FONTBASE_H */

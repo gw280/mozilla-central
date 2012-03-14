@@ -182,9 +182,9 @@ Factory::CreateScaledFontForNativeFont(const NativeFont &aNativeFont, Float aSiz
       return new ScaledFontWin(static_cast<gfxGDIFont*>(aNativeFont.mFont), aSize);
     }
 #endif
-  case NATIVE_FONT_SKIA_FONT_FACE:
+  case NATIVE_FONT_FREETYPE_FONT_FACE:
     {
-      return new ScaledFontFreetype(static_cast<gfxFont*>(aNativeFont.mFont), aSize);
+      return new ScaledFontFreetype(static_cast<FT_Face>(aNativeFont.mFont), aSize);
     }
 #endif
 #ifdef USE_CAIRO

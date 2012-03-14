@@ -51,6 +51,7 @@
 #include "gfxPangoFonts.h"
 #include "gfxContext.h"
 #include "gfxUserFontSet.h"
+#include "gfxFT2FontBase.h"
 #else
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -769,8 +770,8 @@ RefPtr<ScaledFont>
 gfxPlatformGtk::GetScaledFontForFont(gfxFont *aFont)
 {
   NativeFont nativeFont;
-  nativeFont.mType = NATIVE_FONT_SKIA_FONT_FACE;
-  nativeFont.mFont = aFont;
+  nativeFont.mType = NATIVE_FONT_FREETYPE_FONT_FACE;
+  nativeFont.mFont = static_cast<gfxFT2FontBase*>(aFont)->GetFTFace();
   RefPtr<ScaledFont> scaledFont =
     Factory::CreateScaledFontForNativeFont(nativeFont, aFont->GetAdjustedSize());
 
