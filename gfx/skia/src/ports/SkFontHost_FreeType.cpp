@@ -1,6 +1,7 @@
 
 /*
  * Copyright 2006 The Android Open Source Project
+ * Copyright 2012 Mozilla Foundation
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
@@ -21,6 +22,7 @@
 #include "SkString.h"
 #include "SkTemplates.h"
 #include "SkThread.h"
+#include "SkTypefaceCache.h"
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -54,6 +56,7 @@
 
 //#define ENABLE_GLYPH_SPEW     // for tracing calls
 //#define DUMP_STRIKE_CREATION
+//#define ENABLE_FACE_SPEW      // for tracing FT_Face objects we don't own
 
 //#define SK_GAMMA_APPLY_TO_A8
 //#define SK_GAMMA_SRGB
@@ -102,6 +105,76 @@ static int          gLCDExtra;  // number of extra pixels for filtering.
 static const uint8_t* gGammaTables[2];
 
 /////////////////////////////////////////////////////////////////////////
+
+class SkFTLinuxTypeface : public SkTypeface {
+public:
+    static SkTypeface* CreateTypeface(FT_Face face) {
+        SkASSERT(face != NULL);
+
+        int style = SkTypeface::kNormal;
+
+        if (face->style_flags & FT_STYLE_FLAG_ITALIC)
+            style |= SkTypeface::kItalic;
+
+        if (face->style_flags & FT_STYLE_FLAG_BOLD)
+            style |= SkTypeface::kBold;
+
+        bool isFixedWidth = face->face_flags & FT_FACE_FLAG_FIXED_WIDTH;
+
+        SkFontID newId = SkTypefaceCache::NewFontID();
+        return SkNEW_ARGS(SkFTLinuxTypeface, (face, (Style)style, newId, isFixedWidth));
+    }
+
+    FT_Face getFace() {
+        return fFace;
+    }
+
+private:
+    SkFTLinuxTypeface(FT_Face face, Style style, SkFontID id, bool isFixedWidth)
+        : SkTypeface(style, id, isFixedWidth),
+          fFace(face) { }
+
+    FT_Face fFace;
+};
+
+static bool FindByFTFace(SkTypeface* typeface, SkTypeface::Style style, void* ctx) {
+    FT_Face face = static_cast<FT_Face>(ctx);
+    SkFTLinuxTypeface* ftTypeface = static_cast<SkFTLinuxTypeface*>(typeface);
+    FT_Face comparisonFace = static_cast<FT_Face>(ftTypeface->getFace());
+
+    return face == comparisonFace;
+}
+
+SkTypeface* SkCreateTypefaceFromFTFace(FT_Face face)
+{
+    SkTypeface* typeface = SkTypefaceCache::FindByProcAndRef(FindByFTFace, face);
+    if (typeface) {
+#ifdef ENABLE_FACE_SPEW
+        SkDEBUGF(("Found SkTypeface object %x for FT_Face %x\n", typeface, face));
+#endif
+        typeface->ref();
+    } else {
+#ifdef ENABLE_FACE_SPEW
+        SkDEBUGF(("Creating an SkTypeface object for FT_Face %x\n", face));
+#endif
+        typeface = SkFTLinuxTypeface::CreateTypeface(face);
+        SkTypefaceCache::Add(typeface, typeface->style());
+    }
+
+    return typeface;
+}
+
+FT_Face GetFTFaceById(SkFontID id) {
+#ifdef ENABLE_FACE_SPEW
+    SkDEBUGF(("Retrieving SkTypeface object for SkFontID %d\n", id));
+#endif
+    SkFTLinuxTypeface* typeface = (SkFTLinuxTypeface*)SkTypefaceCache::FindByID(id);
+    if (typeface) {
+        return typeface->getFace();
+    }
+
+    return NULL;
+}
 
 // See http://freetype.sourceforge.net/freetype2/docs/reference/ft2-bitmap_handling.html#FT_Bitmap_Embolden
 // This value was chosen by eyeballing the result in Firefox and trying to match it.
@@ -188,11 +261,24 @@ struct SkFaceRec {
     SkStream*       fSkStream;
     uint32_t        fRefCnt;
     uint32_t        fFontID;
+    bool            fIsOwner;
 
     // assumes ownership of the stream, will call unref() when its done
     SkFaceRec(SkStream* strm, uint32_t fontID);
+
+    // ctor for no SkFaceRec when we don't own the FT_Face
+    SkFaceRec(FT_Face face, uint32_t fontID) :
+        fNext(NULL), fFace(face), fSkStream(NULL), fFontID(fontID), fIsOwner(false) {
+    }
+
     ~SkFaceRec() {
-        fSkStream->unref();
+        if (fIsOwner) {
+            FT_Done_Face(fFace);
+        }
+
+        if (fSkStream) {
+            fSkStream->unref();
+        }
     }
 };
 
@@ -228,7 +314,7 @@ extern "C" {
 }
 
 SkFaceRec::SkFaceRec(SkStream* strm, uint32_t fontID)
-        : fNext(NULL), fSkStream(strm), fRefCnt(1), fFontID(fontID) {
+        : fNext(NULL), fSkStream(strm), fFontID(fontID), fIsOwner(true) {
 //    SkDEBUGF(("SkFaceRec: opening %s (%p)\n", key.c_str(), strm));
 
     sk_bzero(&fFTStream, sizeof(fFTStream));
@@ -248,6 +334,17 @@ static SkFaceRec* ref_ft_face(uint32_t fontID) {
             return rec;
         }
         rec = rec->fNext;
+    }
+
+    FT_Face face = GetFTFaceById(fontID);
+
+    if (face) {
+        // No need to actually create the face then
+        rec = SkNEW_ARGS(SkFaceRec, (face, fontID));
+        rec->fNext = gFaceRecHead;
+        gFaceRecHead = rec;
+        rec->fRefCnt = 1;
+        return rec;
     }
 
     SkStream* strm = SkFontHost::OpenStream(fontID);
@@ -304,7 +401,6 @@ static void unref_ft_face(FT_Face face) {
                 } else {
                     gFaceRecHead = next;
                 }
-                FT_Done_Face(face);
                 SkDELETE(rec);
             }
             return;
@@ -442,6 +538,7 @@ SkAdvancedTypefaceMetrics* SkFontHost::GetAdvancedTypefaceMetrics(
         libInit = gFTLibrary;
     }
     SkAutoTCallIProc<struct FT_LibraryRec_, FT_Done_FreeType> ftLib(libInit);
+
     SkFaceRec* rec = ref_ft_face(fontID);
     if (NULL == rec)
         return NULL;
@@ -695,7 +792,7 @@ void SkFontHost::FilterRec(SkScalerContext::Rec* rec) {
 #ifdef SK_BUILD_FOR_ANDROID
 uint32_t SkFontHost::GetUnitsPerEm(SkFontID fontID) {
     SkAutoMutexAcquire ac(gFTMutex);
-    SkFaceRec *rec = ref_ft_face(fontID);
+    SkFaceRec* rec = ref_ft_face(fontID);
     uint16_t unitsPerEm = 0;
 
     if (rec != NULL && rec->fFace != NULL) {
@@ -722,6 +819,7 @@ SkScalerContext_FreeType::SkScalerContext_FreeType(const SkDescriptor* desc)
     // load the font file
     fFTSize = NULL;
     fFace = NULL;
+
     fFaceRec = ref_ft_face(fRec.fFontID);
     if (NULL == fFaceRec) {
         return;
@@ -887,6 +985,9 @@ SkScalerContext_FreeType::~SkScalerContext_FreeType() {
 */
 FT_Error SkScalerContext_FreeType::setupSize() {
     FT_Error    err = FT_Activate_Size(fFTSize);
+        err = FT_Set_Char_Size( fFace,
+                                SkFixedToFDot6(fScaleX), SkFixedToFDot6(fScaleY),
+                                72, 72);
 
     if (err != 0) {
         SkDEBUGF(("SkScalerContext_FreeType::FT_Activate_Size(%x, 0x%x, 0x%x) returned 0x%x\n",
@@ -1782,3 +1883,4 @@ bool find_name_and_attributes(SkStream* stream, SkString* name,
     FT_Done_FreeType(library);
     return true;
 }
+
