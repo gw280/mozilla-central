@@ -8,6 +8,10 @@
 
 #include "BasicLayersImpl.h"
 
+#include "mozilla/gfx/2D.h"
+
+using namespace mozilla::gfx;
+
 namespace mozilla {
 namespace layers {
 
@@ -39,6 +43,9 @@ public:
   virtual already_AddRefed<gfxASurface>
   CreateBuffer(ContentType aType, const nsIntSize& aSize, PRUint32 aFlags);
 
+  virtual TemporaryRef<DrawTarget>
+  CreateDrawTarget(const gfx::IntSize& aSize, gfx::SurfaceFormat aFormat);
+
   /**
    * Swap out the old backing buffer for |aBuffer| and attributes.
    */
@@ -53,9 +60,25 @@ public:
     oldBuffer = SetBuffer(aBuffer, aRect, aRotation);
   }
 
+  void SetBackingBuffer(DrawTarget* aBuffer,
+                        const nsIntRect& aRect, const nsIntPoint& aRotation)
+  {
+    IntSize prevSize = IntSize(BufferRect().width, BufferRect().height);
+    IntSize newSize = aBuffer->GetSize();
+    NS_ABORT_IF_FALSE(newSize == prevSize,
+                      "Swapped-in buffer size doesn't match old buffer's!");
+    RefPtr<DrawTarget> oldBuffer;
+    oldBuffer = SetDT(aBuffer, aRect, aRotation);
+  }
+
   void SetBackingBufferAndUpdateFrom(
     gfxASurface* aBuffer,
     gfxASurface* aSource, const nsIntRect& aRect, const nsIntPoint& aRotation,
+    const nsIntRegion& aUpdateRegion);
+
+  void SetBackingBufferAndUpdateFrom(
+    DrawTarget* aBuffer,
+    DrawTarget* aSource, const nsIntRect& aRect, const nsIntPoint& aRotation,
     const nsIntRegion& aUpdateRegion);
 
   /**
@@ -88,6 +111,14 @@ private:
   {
     SetBuffer(aBuffer, aRect, aRotation);
   }
+
+  BasicThebesLayerBuffer(DrawTarget* aBuffer,
+                         const nsIntRect& aRect, const nsIntPoint& aRotation)
+    : ThebesLayerBuffer(ContainsVisibleBounds)
+  {
+    SetDT(aBuffer, aRect, aRotation);
+  }
+
 
   BasicThebesLayer* mLayer;
 };
@@ -132,6 +163,13 @@ public:
 protected:
   virtual already_AddRefed<gfxASurface>
   CreateBuffer(ContentType, const nsIntSize&, PRUint32)
+  {
+    NS_RUNTIMEABORT("ShadowThebesLayer can't paint content");
+    return nsnull;
+  }
+
+  virtual TemporaryRef<DrawTarget>
+  CreateDrawTarget(const IntSize&, SurfaceFormat)
   {
     NS_RUNTIMEABORT("ShadowThebesLayer can't paint content");
     return nsnull;

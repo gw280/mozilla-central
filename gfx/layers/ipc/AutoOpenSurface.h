@@ -11,8 +11,11 @@
 #include "base/basictypes.h"
 
 #include "gfxASurface.h"
+#include "mozilla/gfx/2D.h"
 #include "mozilla/layers/PLayers.h"
 #include "ShadowLayers.h"
+
+using namespace mozilla::gfx;
 
 namespace mozilla {
 namespace layers {
@@ -44,6 +47,8 @@ public:
   /** This can't escape the scope of AutoOpenSurface. */
   gfxASurface* Get();
 
+  DrawTarget* GetDrawTarget();
+
   /**
    * This can't escape the scope of AutoOpenSurface.
    *
@@ -60,6 +65,7 @@ public:
 private:
   SurfaceDescriptor mDescriptor;
   nsRefPtr<gfxASurface> mSurface;
+  RefPtr<DrawTarget> mDrawTarget;
   nsRefPtr<gfxImageSurface> mSurfaceAsImage;
   OpenMode mMode;
 

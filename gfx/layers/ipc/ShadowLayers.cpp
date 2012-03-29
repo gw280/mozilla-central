@@ -454,6 +454,35 @@ ShadowLayerForwarder::OpenDescriptor(OpenMode aMode,
   }
 }
 
+/*static*/ TemporaryRef<mozilla::gfx::DrawTarget>
+ShadowLayerForwarder::OpenDescriptorForDrawTarget(OpenMode aMode,
+                                                  const SurfaceDescriptor& aSurface)
+{
+  switch (aSurface.type()) {
+  case SurfaceDescriptor::TShmem: {
+    mozilla::ipc::Shmem shm = aSurface.get_Shmem();
+    SharedImageInfo* shmInfo = gfxSharedImageSurface::GetShmInfoPtr(shm);
+    unsigned char* data = shm.get<unsigned char>();
+
+    gfxASurface::gfxImageFormat imgFormat =
+        static_cast<gfxASurface::gfxImageFormat>(shmInfo->format);
+
+    mozilla::gfx::SurfaceFormat surfFormat =
+      mozilla::gfx::SurfaceFormatForImageFormat(imgFormat);
+
+    mozilla::gfx::IntSize size(shmInfo->width, shmInfo->height);
+
+    int stride = gfxASurface::FormatStrideForWidth(imgFormat, size.width);
+
+    return gfxPlatform::GetPlatform()->CreateDrawTargetForData(data, size,
+                                                               stride, surfFormat);
+  }
+  default:
+    NS_RUNTIMEABORT("unexpected SurfaceDescriptor type!");
+    return nsnull;
+  }
+}
+
 /*static*/ gfxContentType
 ShadowLayerForwarder::GetDescriptorSurfaceContentType(
   const SurfaceDescriptor& aDescriptor, OpenMode aMode,
@@ -669,6 +698,15 @@ AutoOpenSurface::Get()
     mSurface = ShadowLayerForwarder::OpenDescriptor(mMode, mDescriptor);
   }
   return mSurface.get();
+}
+
+DrawTarget*
+AutoOpenSurface::GetDrawTarget()
+{
+  if (!mDrawTarget) {
+    mDrawTarget = ShadowLayerForwarder::OpenDescriptorForDrawTarget(mMode, mDescriptor);
+  }
+  return mDrawTarget.get();
 }
 
 gfxImageSurface*

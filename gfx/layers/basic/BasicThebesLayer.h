@@ -7,7 +7,10 @@
 #define GFX_BASICTHEBESLAYER_H
 
 #include "mozilla/layers/PLayersParent.h"
+#include "mozilla/gfx/2D.h"
 #include "BasicBuffers.h"
+
+using namespace mozilla::gfx;
 
 namespace mozilla {
 namespace layers {
@@ -50,6 +53,10 @@ public:
   
   virtual already_AddRefed<gfxASurface>
   CreateBuffer(Buffer::ContentType aType, const nsIntSize& aSize);
+
+  virtual TemporaryRef<DrawTarget>
+  CreateDrawTarget(const IntSize& aSize, SurfaceFormat aFormat);
+
 
   virtual void ComputeEffectiveTransforms(const gfx3DMatrix& aTransformToSurface)
   {
@@ -174,6 +181,10 @@ private:
 
   virtual already_AddRefed<gfxASurface>
   CreateBuffer(Buffer::ContentType aType, const nsIntSize& aSize) MOZ_OVERRIDE;
+
+  virtual TemporaryRef<DrawTarget>
+  CreateDrawTarget(const IntSize& aSize, SurfaceFormat aFormat) MOZ_OVERRIDE;
+
 
   void DestroyBackBuffer()
   {

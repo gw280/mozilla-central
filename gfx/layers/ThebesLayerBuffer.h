@@ -8,6 +8,7 @@
 
 #include "gfxContext.h"
 #include "gfxASurface.h"
+#include "gfxPlatform.h"
 #include "nsRegion.h"
 
 namespace mozilla {
@@ -125,10 +126,30 @@ public:
   CreateBuffer(ContentType aType, const nsIntSize& aSize, PRUint32 aFlags) = 0;
 
   /**
+   * Return a new DrawTarget of |aSize| with SurfaceFormat |aFormat|.
+   */
+  virtual TemporaryRef<gfx::DrawTarget>
+  CreateDrawTarget(const gfx::IntSize& aSize, gfx::SurfaceFormat aFormat)
+  {
+    return gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(aSize, aFormat);
+  }
+  
+  /**
+   * Return a new DrawTarget of |aSize| with ContentType |aContent|.
+   */
+  TemporaryRef<gfx::DrawTarget>
+  CreateDrawTarget(const nsIntSize& aSize, ContentType aContent) 
+  {
+    gfx::SurfaceFormat format = gfx::SurfaceFormatForImageFormat(gfxPlatform::GetPlatform()->OptimalFormatForContent(aContent));
+    return CreateDrawTarget(gfx::IntSize(aSize.width, aSize.height), format);
+  }
+
+  /**
    * Get the underlying buffer, if any. This is useful because we can pass
    * in the buffer as the default "reference surface" if there is one.
    * Don't use it for anything else!
    */
+  gfx::DrawTarget* GetDT() { return mDTBuffer; }
   gfxASurface* GetBuffer() { return mBuffer; }
 
 protected:
@@ -170,6 +191,17 @@ protected:
     mBufferRotation = aBufferRotation;
     return tmp.forget();
   }
+  
+  TemporaryRef<gfx::DrawTarget>
+  SetDT(gfx::DrawTarget* aBuffer,
+            const nsIntRect& aBufferRect, const nsIntPoint& aBufferRotation)
+  {
+    RefPtr<gfx::DrawTarget> tmp = mDTBuffer.forget();
+    mDTBuffer = aBuffer;
+    mBufferRect = aBufferRect;
+    mBufferRotation = aBufferRotation;
+    return tmp.forget();
+  }
 
   /**
    * Set the buffer only.  This is intended to be used with the
@@ -196,6 +228,7 @@ private:
              aSize < mBufferRect.Size()));
   }
 
+  RefPtr<gfx::DrawTarget> mDTBuffer;
   nsRefPtr<gfxASurface> mBuffer;
   /** The area of the ThebesLayer that is covered by the buffer as a whole */
   nsIntRect             mBufferRect;
