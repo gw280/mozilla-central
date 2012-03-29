@@ -486,6 +486,34 @@ ShadowLayerForwarder::OpenDescriptor(const SurfaceDescriptor& aSurface)
   }
 }
 
+TemporaryRef<mozilla::gfx::DrawTarget>
+ShadowLayerForwarder::OpenDescriptorForDrawTarget(const SurfaceDescriptor& aSurface)
+{
+  switch (aSurface.type()) {
+  case SurfaceDescriptor::TShmem: {
+    mozilla::ipc::Shmem shm = aSurface.get_Shmem();
+    SharedImageInfo* shmInfo = gfxSharedImageSurface::GetShmInfoPtr(shm);
+    unsigned char* data = shm.get<unsigned char>();
+
+    gfxASurface::gfxImageFormat imgFormat =
+        static_cast<gfxASurface::gfxImageFormat>(shmInfo->format);
+
+    mozilla::gfx::SurfaceFormat surfFormat =
+      mozilla::gfx::SurfaceFormatForImageFormat(imgFormat);
+
+    mozilla::gfx::IntSize size(shmInfo->width, shmInfo->height);
+
+    int stride = gfxASurface::FormatStrideForWidth(imgFormat, size.width);
+
+    return gfxPlatform::GetPlatform()->CreateDrawTargetForData(data, size,
+                                                               stride, surfFormat);
+  }
+  default:
+    NS_RUNTIMEABORT("unexpected SurfaceDescriptor type!");
+    return nsnull;
+  }
+}
+
 // Destroy the Shmem SurfaceDescriptor |aSurface|.
 template<class ShmemDeallocator>
 static void

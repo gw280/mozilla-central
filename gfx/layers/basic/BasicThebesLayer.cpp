@@ -8,6 +8,7 @@
 #include "nsIWidget.h"
 #include "RenderTrace.h"
 #include "sampler.h"
+#include "gfxSharedImageSurface.h"
 #include "gfxUtils.h"
 
 #include "prprf.h"
@@ -37,6 +38,13 @@ BasicThebesLayer::CreateBuffer(Buffer::ContentType aType, const nsIntSize& aSize
   return referenceSurface->CreateSimilarSurface(
     aType, gfxIntSize(aSize.width, aSize.height));
 }
+
+TemporaryRef<DrawTarget>
+BasicThebesLayer::CreateDrawTarget(const IntSize& aSize, SurfaceFormat aFormat)
+{
+  return gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(aSize, aFormat);
+}
+
 
 static nsIntRegion
 IntersectWithClip(const nsIntRegion& aRegion, gfxContext* aContext)
@@ -281,14 +289,29 @@ BasicShadowableThebesLayer::SyncFrontBufferToBackBuffer()
   }
 
   nsRefPtr<gfxASurface> backBuffer;
+  RefPtr<DrawTarget> backDT;
+
   if (!IsSurfaceDescriptorValid(mBackBuffer)) {
     NS_ABORT_IF_FALSE(mROFrontBuffer.type() == OptionalThebesBuffer::TThebesBuffer,
                       "should have a front RO buffer by now");
     const ThebesBuffer roFront = mROFrontBuffer.get_ThebesBuffer();
     nsRefPtr<gfxASurface> roFrontBuffer = BasicManager()->OpenDescriptor(roFront.buffer());
-    backBuffer = CreateBuffer(roFrontBuffer->GetContentType(), roFrontBuffer->GetSize());
+
+    if (gfxPlatform::UseAzureContentDrawing()) {
+      gfxImageSurface *imgSurf = static_cast<gfxImageSurface*>(roFrontBuffer.get());
+
+      backDT = CreateDrawTarget(IntSize(roFrontBuffer->GetSize().width,
+                                        roFrontBuffer->GetSize().height),
+                                SurfaceFormatForImageFormat(imgSurf->Format()));
+    } else {
+      backBuffer = CreateBuffer(roFrontBuffer->GetContentType(), roFrontBuffer->GetSize());
+    }
   } else {
-    backBuffer = BasicManager()->OpenDescriptor(mBackBuffer);
+    if (gfxPlatform::UseAzureContentDrawing()) {
+      backDT = BasicManager()->OpenDescriptorForDrawTarget(mBackBuffer);
+    } else {
+      backBuffer = BasicManager()->OpenDescriptor(mBackBuffer);
+    }
   }
   mFrontAndBackBufferDiffer = false;
 
@@ -298,6 +321,13 @@ BasicShadowableThebesLayer::SyncFrontBufferToBackBuffer()
     // to a texture it owns, then we probably got back the same buffer
     // we pushed in the update and all is well.  If not, ...
     mValidRegion = mFrontValidRegion;
+
+    if (backDT) {
+        mBuffer.SetBackingBuffer(backDT, mBackBufferRect, mBackBufferRectRotation);
+    } else {
+        mBuffer.SetBackingBuffer(backBuffer, mBackBufferRect, mBackBufferRectRotation);
+    }
+
     mBuffer.SetBackingBuffer(backBuffer, mBackBufferRect, mBackBufferRectRotation);
     return;
   }
@@ -310,11 +340,20 @@ BasicShadowableThebesLayer::SyncFrontBufferToBackBuffer()
                   mFrontUpdatedRegion.GetBounds().height));
 
   const ThebesBuffer roFront = mROFrontBuffer.get_ThebesBuffer();
-  nsRefPtr<gfxASurface> roFrontBuffer = BasicManager()->OpenDescriptor(roFront.buffer());
-  mBuffer.SetBackingBufferAndUpdateFrom(
-    backBuffer,
-    roFrontBuffer, roFront.rect(), roFront.rotation(),
-    mFrontUpdatedRegion);
+
+  if (backDT) {
+    RefPtr<DrawTarget> roFrontDT = BasicManager()->OpenDescriptorForDrawTarget(roFront.buffer());
+    mBuffer.SetBackingBufferAndUpdateFrom(
+      backDT, roFrontDT, roFront.rect(), roFront.rotation(),
+      mFrontUpdatedRegion);
+  } else {
+    nsRefPtr<gfxASurface> roFrontBuffer = BasicManager()->OpenDescriptor(roFront.buffer());
+
+    mBuffer.SetBackingBufferAndUpdateFrom(
+      backBuffer, roFrontBuffer, roFront.rect(), roFront.rotation(),
+      mFrontUpdatedRegion);
+  }
+
   mIsNewBuffer = false;
   // Now the new back buffer has the same (interesting) pixels as the
   // new front buffer, and mValidRegion et al. are correct wrt the new
@@ -400,6 +439,51 @@ BasicShadowableThebesLayer::CreateBuffer(Buffer::ContentType aType,
   mIsNewBuffer = true;
 
   return BasicManager()->OpenDescriptor(mBackBuffer);
+}
+
+TemporaryRef<DrawTarget>
+BasicShadowableThebesLayer::CreateDrawTarget(const IntSize& aSize,
+                                             SurfaceFormat aFormat)
+{
+  if (!HasShadow()) {
+    return BasicThebesLayer::CreateDrawTarget(aSize, aFormat);
+  }
+
+  MOZ_LAYERS_LOG(("BasicShadowableThebes(%p): creating %d x %d buffer(x2)",
+                  this,
+                  aSize.width, aSize.height));
+
+  if (IsSurfaceDescriptorValid(mBackBuffer)) {
+    BasicManager()->DestroyedThebesBuffer(BasicManager()->Hold(this),
+                                          mBackBuffer);
+    mBackBuffer = SurfaceDescriptor();
+  }
+
+  // XXX error handling
+  if (!BasicManager()->AllocBuffer(gfxIntSize(aSize.width, aSize.height),
+                                   mozilla::gfx::ContentForFormat(aFormat),
+                                   &mBackBuffer)) {
+      enum { buflen = 256 };
+      char buf[buflen];
+      PR_snprintf(buf, buflen,
+                  "creating ThebesLayer 'back buffer' failed! width=%d, height=%d, type=%x",
+                  aSize.width, aSize.height, int(mozilla::gfx::ContentForFormat(aFormat)));
+      NS_RUNTIMEABORT(buf);
+  }
+
+  NS_ABORT_IF_FALSE(!mIsNewBuffer,
+                    "Bad! Did we create a buffer twice without painting?");
+
+  mIsNewBuffer = true;
+
+  mozilla::ipc::Shmem shm = mBackBuffer.get_Shmem();
+  SharedImageInfo* shmInfo = gfxSharedImageSurface::GetShmInfoPtr(shm);
+  unsigned char* data = shm.get<unsigned char>();
+
+  int stride = gfxASurface::FormatStrideForWidth(
+      static_cast<gfxASurface::gfxImageFormat>(shmInfo->format), aSize.width);
+
+  return gfxPlatform::GetPlatform()->CreateDrawTargetForData(data, aSize, stride, aFormat);
 }
 
 void

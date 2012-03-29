@@ -9,6 +9,7 @@
 #define mozilla_layers_ShadowLayers_h 1
 
 #include "gfxASurface.h"
+#include "mozilla/gfx/2D.h"
 
 #include "ImageLayers.h"
 #include "Layers.h"
@@ -283,6 +284,8 @@ public:
 
   static already_AddRefed<gfxASurface>
   OpenDescriptor(const SurfaceDescriptor& aSurface);
+  static TemporaryRef<mozilla::gfx::DrawTarget>
+  OpenDescriptorForDrawTarget(const SurfaceDescriptor& aSurface);
 
   void DestroySharedSurface(SurfaceDescriptor* aSurface);
 
