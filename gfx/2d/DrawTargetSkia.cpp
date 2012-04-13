@@ -778,5 +778,15 @@ DrawTargetSkia::MarkChanged()
   }
 }
 
+void*
+DrawTargetSkia::GetNativeSurface(NativeSurfaceType aType)
+{
+    if (aType == NATIVE_SURFACE_SKIA_BITMAP) {
+        return static_cast<void*>(&mBitmap);
+    }
+
+    return NULL;
+}
+
 }
 }

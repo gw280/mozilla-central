@@ -115,7 +115,12 @@ public:
 #elif defined(MOZ_X11)
         return sUseXRender;
 #else
-        return false;
+        if (gfxPlatform::UseAzureContentDrawing()) {
+            // We want to use image surfaces with Azure
+            return true;
+        } else {
+            return false;
+        }
 #endif
     }
 
