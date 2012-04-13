@@ -113,9 +113,12 @@ public:
         // this, we'll only disable this for maemo.
         return true;
 #elif defined(MOZ_X11)
-        return sUseXRender;
-#else
-        return false;
+        if (gfxPlatform::UseAzureContentDrawing()) {
+            // We want to use image surfaces with Azure
+            return false;
+        } else {
+            return sUseXRender;
+        }
 #endif
     }
 

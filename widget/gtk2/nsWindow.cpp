@@ -2154,11 +2154,38 @@ nsWindow::OnExposeEvent(cairo_t *cr)
         return TRUE;
     }
             
+    nsRefPtr<gfxContext> ctx;
+
+    gfxASurface* surf;
+
 #if defined(MOZ_WIDGET_GTK2)
-    nsRefPtr<gfxContext> ctx = new gfxContext(GetThebesSurface());
+    surf = GetThebesSurface();
 #else
-    nsRefPtr<gfxContext> ctx = new gfxContext(GetThebesSurface(cr));
+    surf = GetThebesSurface(cr);
 #endif
+
+    if (gfxPlatform::UseAzureContentDrawing()) {
+        gfxImageSurface* imgSurf = static_cast<gfxImageSurface*>(surf);
+
+        // There's no helper function to convert from gfxIntSize to mozilla::gfx::IntSize :(
+        mozilla::gfx::IntSize size(imgSurf->GetSize().width, imgSurf->GetSize().height);
+
+        mozilla::gfx::SurfaceFormat format = mozilla::gfx::SurfaceFormatForImageFormat(imgSurf->Format());
+
+        mozilla::RefPtr<mozilla::gfx::DrawTarget> targetSurface =
+            gfxPlatform::GetPlatform()->CreateDrawTargetForData(imgSurf->Data(), 
+                                                                size,
+                                                                imgSurf->Stride(),
+                                                                format);
+
+        targetSurface->AddUserData(&kThebesSurfaceKey, imgSurf, DestroyThebesSurface);
+
+        imgSurf->AddRef();
+
+        ctx = new gfxContext(targetSurface);
+    } else {
+        ctx = new gfxContext(surf);
+    }
 
 #ifdef MOZ_X11
     nsIntRect boundsRect; // for translucent only
