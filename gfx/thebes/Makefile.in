@@ -80,6 +80,7 @@ endif
 
 ifeq ($(MOZ_WIDGET_TOOLKIT),gtk2)
 EXPORTS += \
+	gfxFT2Fonts.h \
 	gfxFT2FontBase.h \
 	gfxGdkNativeRenderer.h \
 	gfxPDFSurface.h \

@@ -65,6 +65,7 @@ CPPSRCS	+= \
 
 DEFINES += -DUSE_SKIA
 
+OS_CXXFLAGS += $(CAIRO_FT_CFLAGS)
 endif
 
 ifeq (cocoa,$(MOZ_WIDGET_TOOLKIT))

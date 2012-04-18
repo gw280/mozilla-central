@@ -254,9 +254,9 @@ Factory::CreateScaledFontForNativeFont(const NativeFont &aNativeFont, Float aSiz
     }
 #endif
 #ifdef MOZ_ENABLE_FREETYPE
-  case NATIVE_FONT_SKIA_FONT_FACE:
+  case NATIVE_FONT_FREETYPE_FONT_FACE:
     {
-      return new ScaledFontFreetype(static_cast<FontOptions*>(aNativeFont.mFont), aSize);
+      return new ScaledFontFreetype(static_cast<FT_Face>(aNativeFont.mFont), aSize);
     }
 #endif
 #endif

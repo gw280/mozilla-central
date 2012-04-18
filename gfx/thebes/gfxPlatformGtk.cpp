@@ -13,6 +13,7 @@
 #include "nsUnicharUtils.h"
 #include "nsUnicodeProperties.h"
 #include "gfxFontconfigUtils.h"
+#include "gfxFT2FontBase.h"
 #ifdef MOZ_PANGO
 #include "gfxPangoFonts.h"
 #include "gfxContext.h"
@@ -740,8 +741,8 @@ gfxPlatformGtk::GetScaledFontForFont(gfxFont *aFont)
 {
     NS_ASSERTION(aFont->GetType() == gfxFont::FONT_TYPE_FT2, "Expecting Freetype font");
     NativeFont nativeFont;
-    nativeFont.mType = NATIVE_FONT_SKIA_FONT_FACE;
-    nativeFont.mFont = static_cast<gfxFT2FontBase*>(aFont)->GetFontOptions();
+    nativeFont.mType = NATIVE_FONT_FREETYPE_FONT_FACE;
+    nativeFont.mFont = static_cast<gfxFT2FontBase*>(aFont)->GetFace();
     RefPtr<ScaledFont> scaledFont =
       Factory::CreateScaledFontForNativeFont(nativeFont, aFont->GetAdjustedSize());
 
