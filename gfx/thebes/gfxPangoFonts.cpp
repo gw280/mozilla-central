@@ -61,7 +61,7 @@
 #include "gfxQtPlatform.h"
 #endif
 #include "gfxPangoFonts.h"
-#include "gfxFT2FontBase.h"
+#include "gfxCairoFontBase.h"
 #include "gfxFT2Utils.h"
 #include "harfbuzz/hb-unicode.h"
 #include "harfbuzz/hb-ot-tag.h"
@@ -794,7 +794,7 @@ gfxDownloadedFcFontEntry::GetPangoCoverage()
  * cairo_scaled_font created from an FcPattern.
  */
 
-class gfxFcFont : public gfxFT2FontBase {
+class gfxFcFont : public gfxCairoFontBase {
 public:
     virtual ~gfxFcFont();
     static already_AddRefed<gfxFcFont>
@@ -2172,7 +2172,7 @@ cairo_user_data_key_t gfxFcFont::sGfxFontKey;
 gfxFcFont::gfxFcFont(cairo_scaled_font_t *aCairoFont,
                      gfxFcFontEntry *aFontEntry,
                      const gfxFontStyle *aFontStyle)
-    : gfxFT2FontBase(aCairoFont, aFontEntry, aFontStyle),
+    : gfxCairoFontBase(aCairoFont, aFontEntry, aFontStyle),
       mPangoFont()
 {
     cairo_scaled_font_set_user_data(mScaledFont, &sGfxFontKey, this, NULL);
@@ -2239,7 +2239,7 @@ gfxFcFont::ShapeWord(gfxContext *aContext,
 
     if (fontEntry->ShouldUseHarfBuzz(aShapedWord->Script())) {
         if (!mHarfBuzzShaper) {
-            gfxFT2LockedFace face(this);
+            gfxCairoLockedFace face(this);
             mHarfBuzzShaper = new gfxHarfBuzzShaper(this);
             // Used by gfxHarfBuzzShaper, currently only for kerning
             mFUnitsConvFactor = face.XScale();

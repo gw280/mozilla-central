@@ -40,7 +40,7 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#include "gfxFT2FontBase.h"
+#include "gfxCairoFontBase.h"
 #include "gfxFT2Utils.h"
 #include FT_TRUETYPE_TAGS_H
 #include FT_TRUETYPE_TABLES_H

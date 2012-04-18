@@ -44,6 +44,7 @@
 #define GFX_FT2UTILS_H
 
 #include "cairo-ft.h"
+#include "gfxCairoFontBase.h"
 #include "gfxFT2FontBase.h"
 
 // Rounding and truncation functions for a FreeType fixed point number 
@@ -60,13 +61,14 @@ class gfxFT2LockedFace {
 public:
     gfxFT2LockedFace(gfxFT2FontBase *aFont) :
         mGfxFont(aFont),
-        mFace(cairo_ft_scaled_font_lock_face(aFont->CairoScaledFont()))
-    { }
-    ~gfxFT2LockedFace()
+        mFace(aFont->GetFace())
+    { 
+        FT_Reference_Face(mFace);
+    }
+
+    virtual ~gfxFT2LockedFace()
     {
-        if (mFace) {
-            cairo_ft_scaled_font_unlock_face(mGfxFont->CairoScaledFont());
-        }
+        FT_Done_Face(mFace);
     }
 
     FT_Face get() { return mFace; };
@@ -125,8 +127,31 @@ protected:
                                            FT_ULong variantSelector);
     CharVariantFunction FindCharVariantFunction();
 
+    gfxFT2LockedFace(gfxFT2FontBase *aFont, FT_Face aFace) :
+        mGfxFont(aFont),
+        mFace(aFace)
+    {
+        FT_Reference_Face(mFace);
+    }
+
     nsRefPtr<gfxFT2FontBase> mGfxFont;
     FT_Face mFace;
+};
+
+class gfxCairoLockedFace : public gfxFT2LockedFace
+{
+public:
+    gfxCairoLockedFace(gfxCairoFontBase *aFont) :
+        gfxFT2LockedFace(aFont, cairo_ft_scaled_font_lock_face(aFont->CairoScaledFont()))
+    { }
+
+    ~gfxCairoLockedFace()
+    {
+        if (mFace) {
+            cairo_ft_scaled_font_unlock_face(static_cast<gfxCairoFontBase*>(mGfxFont.get())->CairoScaledFont());
+        }
+    }
+        
 };
 
 #endif /* GFX_FT2UTILS_H */

@@ -40,39 +40,40 @@
  *
  * ***** END LICENSE BLOCK ***** */
 
-#ifndef GFX_FT2FONTBASE_H
-#define GFX_FT2FONTBASE_H
+#ifndef GFX_CAIROFONTBASE_H
+#define GFX_CAIROFONTBASE_H
 
 #include "cairo.h"
 #include "gfxContext.h"
 #include "gfxFont.h"
+#include "gfxFT2FontBase.h"
 
-typedef struct FT_FaceRec_* FT_Face;
-
-class gfxFT2FontBase : public gfxFont {
+class gfxCairoFontBase : public gfxFT2FontBase {
 public:
-    gfxFT2FontBase(FT_Face aFontFace,
+    gfxCairoFontBase(cairo_scaled_font_t *aScaledFont,
                    gfxFontEntry *aFontEntry,
                    const gfxFontStyle *aFontStyle);
-    virtual ~gfxFT2FontBase();
+    virtual ~gfxCairoFontBase();
 
+    virtual PRUint32 GetGlyph(PRUint32 aCharCode);
     virtual void GetGlyphExtents(PRUint32 aGlyph,
-                         cairo_text_extents_t* aExtents) {}
+                         cairo_text_extents_t* aExtents);
     virtual const gfxFont::Metrics& GetMetrics();
     virtual PRUint32 GetSpaceGlyph();
     virtual hb_blob_t *GetFontTable(PRUint32 aTag);
-    virtual bool ProvidesGetGlyph() const { return false; }
+    virtual bool ProvidesGetGlyph() const { return true; }
     virtual PRUint32 GetGlyph(PRUint32 unicode, PRUint32 variation_selector);
-    virtual PRUint32 GetGlyph(PRUint32 aCharCode) { return 0; }
-    virtual bool ProvidesGlyphWidths() { return false; }
+    virtual bool ProvidesGlyphWidths() { return true; }
+    virtual PRInt32 GetGlyphWidth(gfxContext *aCtx, PRUint16 aGID);
 
-    virtual FT_Face GetFace() { return mFace; }
+    cairo_scaled_font_t *CairoScaledFont() { return mScaledFont; };
+    virtual bool SetupCairoFont(gfxContext *aContext);
+
     virtual FontType GetType() const { return FONT_TYPE_FT2; }
 protected:
     PRUint32 mSpaceGlyph;
     bool mHasMetrics;
     Metrics mMetrics;
-    FT_Face mFace;
 };
 
-#endif /* GFX_FT2FONTBASE_H */
+#endif /* GFX_CAIROFONTBASE_H */

@@ -42,14 +42,14 @@
 #include "cairo.h"
 #include "gfxTypes.h"
 #include "gfxFont.h"
-#include "gfxFT2FontBase.h"
+#include "gfxCairoFontBase.h"
 #include "gfxContext.h"
 #include "gfxFontUtils.h"
 #include "gfxUserFontSet.h"
 
 class FT2FontEntry;
 
-class gfxFT2Font : public gfxFT2FontBase {
+class gfxFT2Font : public gfxCairoFontBase {
 public: // new functions
     gfxFT2Font(cairo_scaled_font_t *aCairoFont,
                FT2FontEntry *aFontEntry,

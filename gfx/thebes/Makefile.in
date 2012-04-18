@@ -87,6 +87,7 @@ ifeq ($(MOZ_WIDGET_TOOLKIT),android)
 EXPORTS += \
 	gfxAndroidPlatform.h \
 	gfxFT2Fonts.h \
+	gfxCairoFontBase.h \
 	gfxFT2FontBase.h \
 	$(NULL)
 endif
@@ -95,6 +96,7 @@ ifeq ($(MOZ_WIDGET_TOOLKIT),gonk)
 EXPORTS += \
 	gfxAndroidPlatform.h \
 	gfxFT2Fonts.h \
+	gfxCairoFontBase.h \
 	gfxFT2FontBase.h \
 	$(NULL)
 endif
@@ -110,6 +112,7 @@ endif
 
 ifeq ($(MOZ_WIDGET_TOOLKIT),gtk2)
 EXPORTS += \
+	gfxCairoFontBase.h \
 	gfxFT2FontBase.h \
 	gfxGdkNativeRenderer.h \
 	gfxPDFSurface.h \
@@ -143,6 +146,7 @@ endif
 
 ifeq ($(MOZ_WIDGET_TOOLKIT),qt)
 EXPORTS += \
+	gfxCairoFontBase.h \
 	gfxFT2FontBase.h \
 	gfxQPainterSurface.h \
 	gfxQtNativeRenderer.h \
@@ -267,6 +271,7 @@ EXPORTS	+= \
 CPPSRCS += \
 	gfxAndroidPlatform.cpp \
 	gfxFT2Fonts.cpp \
+	gfxCairoFontBase.cpp \
 	gfxFT2FontBase.cpp \
 	gfxFT2Utils.cpp \
 	gfxFT2FontList.cpp \
@@ -285,6 +290,7 @@ EXPORTS	+= \
 CPPSRCS += \
 	gfxAndroidPlatform.cpp \
 	gfxFT2Fonts.cpp \
+	gfxCairoFontBase.cpp \
 	gfxFT2FontBase.cpp \
 	gfxFT2Utils.cpp \
 	gfxFT2FontList.cpp \
@@ -318,6 +324,7 @@ endif
 CPPSRCS +=  gfxPlatformGtk.cpp gfxGdkNativeRenderer.cpp
 CPPSRCS +=	gfxPDFSurface.cpp gfxPSSurface.cpp
 CPPSRCS +=	gfxFontconfigUtils.cpp
+CPPSRCS +=	gfxCairoFontBase.cpp
 CPPSRCS +=	gfxFT2FontBase.cpp
 CPPSRCS +=	gfxFT2Utils.cpp
 CPPSRCS +=	nsUnicodeRange.cpp
@@ -334,6 +341,7 @@ CPPSRCS += gfxPangoFonts.cpp
 else
 CPPSRCS += gfxFT2Fonts.cpp
 endif
+CPPSRCS +=	gfxCairoFontBase.cpp
 CPPSRCS +=	gfxFT2FontBase.cpp
 CPPSRCS +=	gfxFT2Utils.cpp
 CPPSRCS +=	gfxFontconfigUtils.cpp
