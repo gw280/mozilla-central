@@ -10,6 +10,7 @@
 
 #ifdef USE_SKIA
 #include "skia/SkTypeface.h"
+#include "skia/SkTypeface_FreeType.h"
 #endif
 
 #include <string>
@@ -39,15 +40,23 @@ fontStyleToSkia(FontStyle aStyle)
 }
 #endif
 
-// Ideally we want to use FT_Face here but as there is currently no way to get
-// an SkTypeface from an FT_Face we do this.
-ScaledFontFreetype::ScaledFontFreetype(FontOptions* aFont, Float aSize)
+ScaledFontFreetype::ScaledFontFreetype(FT_Face aFace, Float aSize)
   : ScaledFontBase(aSize)
 {
-#ifdef USE_SKIA
-  mTypeface = SkTypeface::CreateFromName(aFont->mName.c_str(), fontStyleToSkia(aFont->mStyle));
-#endif
+  mFace = aFace;
 }
+
+#ifdef USE_SKIA
+SkTypeface* ScaledFontFreetype::GetSkTypeface()
+{
+    if (!mTypeface) {
+        mTypeface = SkCreateTypefaceFromFTFace(mFace);
+    }
+
+    return mTypeface;
+}
+#endif
 
 }
 }
+
