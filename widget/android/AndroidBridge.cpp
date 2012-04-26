@@ -25,6 +25,7 @@
 #include "mozilla/dom/sms/PSms.h"
 #include "gfxImageSurface.h"
 #include "gfxContext.h"
+#include "gfxPlatform.h"
 #include "nsPresContext.h"
 #include "nsIDocShell.h"
 #include "nsPIDOMWindow.h"
@@ -2552,15 +2553,28 @@ nsresult AndroidBridge::TakeScreenshot(nsIDOMWindow *window, int32_t srcX, int32
     uint32_t stride = bufW * 2 /* 16 bpp */;
 
     void* data = env->GetDirectBufferAddress(buffer);
+
     if (!data)
         return NS_ERROR_FAILURE;
 
-    nsRefPtr<gfxImageSurface> surf = new gfxImageSurface(static_cast<unsigned char*>(data), nsIntSize(bufW, bufH), stride, gfxASurface::ImageFormatRGB16_565);
-    if (surf->CairoStatus() != 0) {
-        ALOG_BRIDGE("Error creating gfxImageSurface");
-        return NS_ERROR_FAILURE;
+    nsRefPtr<gfxContext> context;
+
+    if (gfxPlatform::GetPlatform()->SupportsAzureContent()) {
+        mozilla::RefPtr<mozilla::gfx::DrawTarget> target =
+            gfxPlatform::GetPlatform()->CreateDrawTargetForData(static_cast<unsigned char*>(data),
+                                                                mozilla::gfx::IntSize(bufW, bufH),
+                                                                stride,
+                                                                mozilla::gfx::FORMAT_R5G6B5);
+        context = new gfxContext(target);
+    } else {
+        nsRefPtr<gfxImageSurface> surf = new gfxImageSurface(static_cast<unsigned char*>(data), nsIntSize(bufW, bufH), stride, gfxASurface::ImageFormatRGB16_565);
+        if (surf->CairoStatus() != 0) {
+            ALOG_BRIDGE("Error creating gfxImageSurface");
+            return NS_ERROR_FAILURE;
+        }
+        context = new gfxContext(surf);
     }
-    nsRefPtr<gfxContext> context = new gfxContext(surf);
+
     gfxPoint pt(dstX, dstY);
     context->Translate(pt);
     context->Scale(scale * dstW / srcW, scale * dstH / srcH);
