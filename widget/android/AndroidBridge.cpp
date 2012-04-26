@@ -2491,8 +2491,21 @@ nsresult AndroidBridge::TakeScreenshot(nsIDOMWindow *window, PRInt32 srcX, PRInt
     PRUint32 stride = bufW * 2 /* 16 bpp */;
 
     void* data = env->GetDirectBufferAddress(buffer);
-    nsRefPtr<gfxImageSurface> surf = new gfxImageSurface(static_cast<unsigned char*>(data), nsIntSize(bufW, bufH), stride, gfxASurface::ImageFormatRGB16_565);
-    nsRefPtr<gfxContext> context = new gfxContext(surf);
+
+    nsRefPtr<gfxContext> context;
+
+    if (gfxPlatform::UseAzureContentDrawing()) {
+        mozilla::RefPtr<mozilla::gfx::DrawTarget> target =
+            gfxPlatform::GetPlatform()->CreateDrawTargetForData(static_cast<unsigned char*>(data),
+                                                                mozilla::gfx::IntSize(bufW, bufH),
+                                                                stride,
+                                                                mozilla::gfx::FORMAT_R5G6B5);
+        context = new gfxContext(target);
+    } else {
+        nsRefPtr<gfxImageSurface> surf = new gfxImageSurface(static_cast<unsigned char*>(data), nsIntSize(bufW, bufH), stride, gfxASurface::ImageFormatRGB16_565);
+        context = new gfxContext(surf);
+    }
+
     gfxPoint pt(dstX, dstY);
     context->Translate(pt);
     context->Scale(scale * dstW / srcW, scale * dstH / srcH);
