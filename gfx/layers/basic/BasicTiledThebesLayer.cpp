@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/gfx/2D.h"
 #include "mozilla/layers/PLayersChild.h"
 #include "BasicTiledThebesLayer.h"
 #include "gfxImageSurface.h"
@@ -79,13 +80,27 @@ BasicTiledLayerBuffer::PaintThebes(BasicTiledThebesLayer* aLayer,
   long start = PR_IntervalNow();
 #endif
   if (UseSinglePaintBuffer()) {
+    nsRefPtr<gfxContext> ctxt;
+
     const nsIntRect bounds = aPaintRegion.GetBounds();
     {
       SAMPLE_LABEL("BasicTiledLayerBuffer", "PaintThebesSingleBufferAlloc");
-      mSinglePaintBuffer = new gfxImageSurface(gfxIntSize(bounds.width, bounds.height), GetFormat(), !aLayer->CanUseOpaqueSurface());
+
+      if (gfxPlatform::UseAzureContentDrawing()) {
+        mSinglePaintDrawTarget =
+          gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(gfx::IntSize(bounds.width, bounds.height),
+                                                                gfx::SurfaceFormatForImageFormat(GetFormat()));
+
+        ctxt = new gfxContext(mSinglePaintDrawTarget);
+      } else {
+        mSinglePaintBuffer = new gfxImageSurface(gfxIntSize(bounds.width, bounds.height), GetFormat(), !aLayer->CanUseOpaqueSurface());
+
+        ctxt = new gfxContext(mSinglePaintBuffer);
+      }
+
       mSinglePaintBufferOffset = nsIntPoint(bounds.x, bounds.y);
     }
-    nsRefPtr<gfxContext> ctxt = new gfxContext(mSinglePaintBuffer);
+
     ctxt->NewPath();
     ctxt->Translate(gfxPoint(-bounds.x, -bounds.y));
 #ifdef GFX_TILEDLAYER_PREF_WARNINGS
@@ -128,6 +143,7 @@ BasicTiledLayerBuffer::PaintThebes(BasicTiledThebesLayer* aLayer,
   mCallback = nsnull;
   mCallbackData = nsnull;
   mSinglePaintBuffer = nsnull;
+  mSinglePaintDrawTarget = nsnull;
 }
 
 BasicTiledLayerTile
@@ -151,15 +167,42 @@ BasicTiledLayerBuffer::ValidateTileInternal(BasicTiledLayerTile aTile,
   aTile.mSurface = aTile.mSurface->GetWritable(&writableSurface);
 
   // Bug 742100, this gfxContext really should live on the stack.
-  nsRefPtr<gfxContext> ctxt = new gfxContext(writableSurface);
-  ctxt->SetOperator(gfxContext::OPERATOR_SOURCE);
-  if (mSinglePaintBuffer) {
-    ctxt->NewPath();
-    ctxt->SetSource(mSinglePaintBuffer.get(),
-                    gfxPoint(mSinglePaintBufferOffset.x - aDirtyRect.x + drawRect.x,
-                             mSinglePaintBufferOffset.y - aDirtyRect.y + drawRect.y));
-    ctxt->Rectangle(drawRect, true);
-    ctxt->Fill();
+  nsRefPtr<gfxContext> ctxt;
+
+  RefPtr<gfx::DrawTarget> writableDrawTarget;
+  if (gfxPlatform::UseAzureContentDrawing()) {
+    // TODO: Instead of creating a gfxImageSurface to back the tile we should
+    // create an offscreen DrawTarget. This would need to be shared cross-thread
+    // and support copy on write semantics.
+    gfx::SurfaceFormat format = gfx::SurfaceFormatForImageFormat(writableSurface->Format());
+
+    writableDrawTarget =
+        gfxPlatform::GetPlatform()->CreateDrawTargetForData(writableSurface->Data(),
+                                                            gfx::IntSize(writableSurface->Width(),
+                                                                         writableSurface->Height()),
+                                                            writableSurface->Stride(),
+                                                            format);
+    ctxt = new gfxContext(writableDrawTarget);
+  } else {
+    ctxt = new gfxContext(writableSurface);
+    ctxt->SetOperator(gfxContext::OPERATOR_SOURCE);
+  }
+
+  if (mSinglePaintBuffer || mSinglePaintDrawTarget) {
+    if (gfxPlatform::UseAzureContentDrawing()) {
+      RefPtr<gfx::SourceSurface> source = mSinglePaintDrawTarget->Snapshot();
+      writableDrawTarget->CopySurface(source,
+                                      gfx::IntRect(gfx::IntPoint(0, 0), source->GetSize()),
+                                      gfx::IntPoint(mSinglePaintBufferOffset.x - aDirtyRect.x + drawRect.x,
+                                                    mSinglePaintBufferOffset.y - aDirtyRect.y + drawRect.y));
+    } else {
+      ctxt->NewPath();
+      ctxt->Rectangle(drawRect, true);
+      ctxt->SetSource(mSinglePaintBuffer.get(),
+                      gfxPoint(mSinglePaintBufferOffset.x - aDirtyRect.x + drawRect.x,
+                               mSinglePaintBufferOffset.y - aDirtyRect.y + drawRect.y));
+      ctxt->Fill();
+    }
   } else {
     ctxt->NewPath();
     ctxt->Translate(gfxPoint(-aTileOrigin.x, -aTileOrigin.y));
