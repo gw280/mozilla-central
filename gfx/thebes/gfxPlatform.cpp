@@ -1141,6 +1141,7 @@ gfxPlatform::UseProgressiveTilePainting()
 bool
 gfxPlatform::UseAzureContentDrawing()
 {
+    return true;
   static bool sAzureContentDrawingEnabled;
   static bool sAzureContentDrawingPrefCached = false;
 

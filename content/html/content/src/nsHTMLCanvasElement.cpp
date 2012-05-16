@@ -779,7 +779,7 @@ nsresult
 NS_NewCanvasRenderingContext2D(nsIDOMCanvasRenderingContext2D** aResult)
 {
   Telemetry::Accumulate(Telemetry::CANVAS_2D_USED, 1);
-  if (AzureCanvasEnabled()) {
+  if (AzureCanvasEnabled() || true) {
     return NS_NewCanvasRenderingContext2DAzure(aResult);
   }
 
