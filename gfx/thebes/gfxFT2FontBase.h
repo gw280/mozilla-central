@@ -11,31 +11,38 @@
 #include "gfxFont.h"
 #include "mozilla/gfx/2D.h"
 
+typedef struct FT_FaceRec_* FT_Face;
+class gfxFT2Extents;
+class SkTypeface;
+
 class gfxFT2FontBase : public gfxFont {
 public:
-    gfxFT2FontBase(cairo_scaled_font_t *aScaledFont,
+    gfxFT2FontBase(FT_Face aFontFace,
                    gfxFontEntry *aFontEntry,
                    const gfxFontStyle *aFontStyle);
     virtual ~gfxFT2FontBase();
 
-    PRUint32 GetGlyph(PRUint32 aCharCode);
-    void GetGlyphExtents(PRUint32 aGlyph,
-                         cairo_text_extents_t* aExtents);
     virtual const gfxFont::Metrics& GetMetrics();
     virtual PRUint32 GetSpaceGlyph();
     virtual hb_blob_t *GetFontTable(PRUint32 aTag);
+    virtual bool SetupCairoFont(gfxContext *aContext);
+
     virtual bool ProvidesGetGlyph() const { return true; }
     virtual PRUint32 GetGlyph(PRUint32 unicode, PRUint32 variation_selector);
     virtual bool ProvidesGlyphWidths() { return true; }
-    virtual PRInt32 GetGlyphWidth(gfxContext *aCtx, PRUint16 aGID);
+    virtual PRInt32 GetGlyphWidth(gfxContext *aCtx, PRUint16 aGlyphID);
 
-    cairo_scaled_font_t *CairoScaledFont() { return mScaledFont; };
-    virtual bool SetupCairoFont(gfxContext *aContext);
-
+    virtual FT_Face GetFace() { return mFace; }
     virtual FontType GetType() const { return FONT_TYPE_FT2; }
 
     mozilla::gfx::FontOptions* GetFontOptions() { return &mFontOptions; }
 protected:
+    // Lazily create the platform font object
+    cairo_scaled_font_t* CairoScaledFont();
+    SkTypeface* SkiaTypeface();
+
+    void CreateExtentsCalculator();
+
     PRUint32 mSpaceGlyph;
     bool mHasMetrics;
     Metrics mMetrics;
@@ -43,6 +50,12 @@ protected:
     // Azure font description
     mozilla::gfx::FontOptions  mFontOptions;
     void ConstructFontOptions();
+
+    FT_Face mFace;
+
+    gfxFT2Extents *mFontExtents;
+
+    SkTypeface *mTypeface;
 };
 
 #endif /* GFX_FT2FONTBASE_H */

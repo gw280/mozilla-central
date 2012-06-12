@@ -18,7 +18,7 @@ class FT2FontEntry;
 
 class gfxFT2Font : public gfxFT2FontBase {
 public: // new functions
-    gfxFT2Font(cairo_scaled_font_t *aCairoFont,
+    gfxFT2Font(FT_Face aFontFace,
                FT2FontEntry *aFontEntry,
                const gfxFontStyle *aFontStyle,
                bool aNeedsBold);
@@ -82,44 +82,6 @@ protected:
     typedef nsTHashtable<CharGlyphMapEntryType> CharGlyphMap;
     CharGlyphMap mCharGlyphCache;
 };
-
-#ifndef ANDROID // not needed on Android, uses the standard gfxFontGroup directly
-class THEBES_API gfxFT2FontGroup : public gfxFontGroup {
-public: // new functions
-    gfxFT2FontGroup (const nsAString& families,
-                    const gfxFontStyle *aStyle,
-                    gfxUserFontSet *aUserFontSet);
-    virtual ~gfxFT2FontGroup ();
-
-protected: // from gfxFontGroup
-
-    virtual gfxFontGroup *Copy(const gfxFontStyle *aStyle);
-
-
-protected: // new functions
-
-    static bool FontCallback (const nsAString & fontName, 
-                                const nsACString & genericName, 
-                                bool aUseFontSet,
-                                void *closure);
-    bool mEnableKerning;
-
-    void GetPrefFonts(nsIAtom *aLangGroup,
-                      nsTArray<nsRefPtr<gfxFontEntry> >& aFontEntryList);
-    void GetCJKPrefFonts(nsTArray<nsRefPtr<gfxFontEntry> >& aFontEntryList);
-    void FamilyListToArrayList(const nsString& aFamilies,
-                               nsIAtom *aLangGroup,
-                               nsTArray<nsRefPtr<gfxFontEntry> > *aFontEntryList);
-    already_AddRefed<gfxFT2Font> WhichFontSupportsChar(const nsTArray<nsRefPtr<gfxFontEntry> >& aFontEntryList,
-                                                       PRUint32 aCh);
-    already_AddRefed<gfxFont> WhichPrefFontSupportsChar(PRUint32 aCh);
-    already_AddRefed<gfxFont>
-        WhichSystemFontSupportsChar(PRUint32 aCh, PRInt32 aRunScript);
-
-    nsTArray<gfxTextRange> mRanges;
-    nsString mString;
-};
-#endif // !ANDROID
 
 #endif /* GFX_FT2FONTS_H */
 

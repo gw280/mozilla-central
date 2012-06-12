@@ -21,6 +21,7 @@ using mozilla::dom::FontListEntry;
 
 class FontNameCache;
 typedef struct FT_FaceRec_* FT_Face;
+typedef struct FT_SizeRec_* FT_Size;
 
 class FT2FontEntry : public gfxFontEntry
 {
@@ -29,6 +30,7 @@ public:
         gfxFontEntry(aFaceName)
     {
         mFTFace = nsnull;
+        mFTSize = nsnull;
         mFontFace = nsnull;
         mFTFontIndex = 0;
     }
@@ -63,7 +65,7 @@ public:
                                         bool aNeedsBold);
 
     cairo_font_face_t *CairoFontFace();
-    cairo_scaled_font_t *CreateScaledFont(const gfxFontStyle *aStyle);
+    FT_Face CreateFontFace();
 
     nsresult ReadCMAP();
     nsresult GetFontTable(PRUint32 aTableTag, FallibleTArray<PRUint8>& aBuffer);
@@ -78,6 +80,7 @@ public:
                                      FontListSizes*    aSizes) const;
 
     FT_Face mFTFace;
+    FT_Size mFTSize;
     cairo_font_face_t *mFontFace;
 
     nsCString mFilename;
