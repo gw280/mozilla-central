@@ -18,8 +18,9 @@ class gfxFontconfigUtils;
 #ifndef MOZ_PANGO
 class FontFamily;
 class FontEntry;
-typedef struct FT_LibraryRec_ *FT_Library;
 #endif
+
+typedef struct FT_LibraryRec_ *FT_Library;
 
 class THEBES_API gfxPlatformGtk : public gfxPlatform {
 public:
@@ -86,9 +87,7 @@ public:
     void SetPrefFontEntries(const nsCString& aLangGroup, nsTArray<nsRefPtr<gfxFontEntry> >& aFontEntryList);
 #endif
 
-#ifndef MOZ_PANGO
     FT_Library GetFTLibrary();
-#endif
 
     static void SetGdkDrawable(gfxASurface *target,
                                GdkDrawable *drawable);

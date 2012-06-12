@@ -606,13 +606,17 @@ gfxPlatformGtk::GetPlatformCMSOutputProfile()
 }
 
 
-#ifndef MOZ_PANGO
 FT_Library
 gfxPlatformGtk::GetFTLibrary()
 {
+#ifndef MOZ_PANGO
     return gPlatformFTLibrary;
+#else
+    return nsnull;
+#endif
 }
 
+#ifndef MOZ_PANGO
 FontFamily *
 gfxPlatformGtk::FindFontFamily(const nsAString& aName)
 {

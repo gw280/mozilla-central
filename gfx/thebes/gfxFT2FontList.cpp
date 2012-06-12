@@ -3,6 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/dom/ContentChild.h"
 #include "mozilla/Util.h"
 
 #if defined(MOZ_WIDGET_GTK2)
@@ -16,13 +17,13 @@
 #include "gfxWindowsPlatform.h"
 #define gfxToolkitPlatform gfxWindowsPlatform
 #elif defined(ANDROID)
-#include "mozilla/dom/ContentChild.h"
 #include "gfxAndroidPlatform.h"
 #define gfxToolkitPlatform gfxAndroidPlatform
 #endif
 
-#ifdef ANDROID
 #include "nsXULAppAPI.h"
+
+#ifdef ANDROID
 #include <dirent.h>
 #include <android/log.h>
 #define ALOG(args...)  __android_log_print(ANDROID_LOG_INFO, "Gecko" , ## args)
@@ -32,10 +33,12 @@
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_TAGS_H
 #include FT_TRUETYPE_TABLES_H
+#include FT_SIZES_H
 #include "cairo-ft.h"
 
 #include "gfxFT2FontList.h"
 #include "gfxFT2Fonts.h"
+#include "gfxFT2Utils.h"
 #include "gfxUserFontSet.h"
 #include "gfxFontUtils.h"
 
@@ -86,51 +89,37 @@ BuildKeyNameFromFontName(nsAString &aName)
  * then create a Cairo font_face and scaled_font for drawing.
  */
 
-cairo_scaled_font_t *
+const double kSkewFactor = 0.25;
+
+FT_Face
 FT2FontEntry::CreateScaledFont(const gfxFontStyle *aStyle)
 {
-    cairo_scaled_font_t *scaledFont = NULL;
+    CairoFontFace();
 
-    cairo_matrix_t sizeMatrix;
-    cairo_matrix_t identityMatrix;
+    if (!mFTSize) {
+        bool needsOblique = !IsItalic() &&
+                (aStyle->style & (NS_FONT_STYLE_ITALIC | NS_FONT_STYLE_OBLIQUE));
 
-    // XXX deal with adjusted size
-    cairo_matrix_init_scale(&sizeMatrix, aStyle->size, aStyle->size);
-    cairo_matrix_init_identity(&identityMatrix);
+        FT_Matrix matrix;
+        matrix.xx = FLOAT_TO_16_16(1.0);
+        matrix.yx = FLOAT_TO_16_16(0.0);
+        matrix.yy = FLOAT_TO_16_16(1.0);
+        matrix.xy = FLOAT_TO_16_16(0.0);
 
-    // synthetic oblique by skewing via the font matrix
-    bool needsOblique = !IsItalic() &&
-            (aStyle->style & (NS_FONT_STYLE_ITALIC | NS_FONT_STYLE_OBLIQUE));
+        if (needsOblique) {
+            matrix.xy = FLOAT_TO_16_16(-1.0 * kSkewFactor);
+        }
 
-    if (needsOblique) {
-        const double kSkewFactor = 0.25;
-
-        cairo_matrix_t style;
-        cairo_matrix_init(&style,
-                          1,                //xx
-                          0,                //yx
-                          -1 * kSkewFactor,  //xy
-                          1,                //yy
-                          0,                //x0
-                          0);               //y0
-        cairo_matrix_multiply(&sizeMatrix, &sizeMatrix, &style);
+        FT_New_Size(mFTFace, &mFTSize);
+        FT_Activate_Size(mFTSize);
+        FT_Set_Char_Size(mFTFace,
+                         FLOAT_TO_26_6(aStyle->size),
+                         FLOAT_TO_26_6(aStyle->size),
+                         72, 72);
+        FT_Set_Transform(mFTFace, &matrix, NULL);
     }
 
-    cairo_font_options_t *fontOptions = cairo_font_options_create();
-
-    if (!gfxPlatform::GetPlatform()->FontHintingEnabled()) {
-        cairo_font_options_set_hint_metrics(fontOptions, CAIRO_HINT_METRICS_OFF);
-    }
-
-    scaledFont = cairo_scaled_font_create(CairoFontFace(),
-                                          &sizeMatrix,
-                                          &identityMatrix, fontOptions);
-    cairo_font_options_destroy(fontOptions);
-
-    NS_ASSERTION(cairo_scaled_font_status(scaledFont) == CAIRO_STATUS_SUCCESS,
-                 "Failed to make scaled font");
-
-    return scaledFont;
+    return mFTFace;
 }
 
 FT2FontEntry::~FT2FontEntry()
@@ -149,9 +138,8 @@ FT2FontEntry::~FT2FontEntry()
 gfxFont*
 FT2FontEntry::CreateFontInstance(const gfxFontStyle *aFontStyle, bool aNeedsBold)
 {
-    cairo_scaled_font_t *scaledFont = CreateScaledFont(aFontStyle);
-    gfxFont *font = new gfxFT2Font(scaledFont, this, aFontStyle, aNeedsBold);
-    cairo_scaled_font_destroy(scaledFont);
+    FT_Face face = CreateScaledFont(aFontStyle);
+    gfxFont *font = new gfxFT2Font(face, this, aFontStyle, aNeedsBold);
     return font;
 }
 
@@ -771,11 +759,8 @@ gfxFT2FontList::AppendFacesFromFontFile(nsCString& aFileName,
         return;
     }
 
-#ifdef XP_WIN
-    FT_Library ftLibrary = gfxWindowsPlatform::GetPlatform()->GetFTLibrary();
-#elif defined(ANDROID)
-    FT_Library ftLibrary = gfxAndroidPlatform::GetPlatform()->GetFTLibrary();
-#endif
+    FT_Library ftLibrary = gfxToolkitPlatform::GetPlatform()->GetFTLibrary();
+
     FT_Face dummy;
     if (FT_Err_Ok == FT_New_Face(ftLibrary, aFileName.get(), -1, &dummy)) {
         LOG(("reading font info via FreeType for %s", aFileName.get()));
