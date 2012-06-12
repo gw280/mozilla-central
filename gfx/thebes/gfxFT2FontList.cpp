@@ -3,6 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/dom/ContentChild.h"
 #include "mozilla/Util.h"
 
 #if defined(MOZ_WIDGET_GTK2)
@@ -16,13 +17,13 @@
 #include "gfxWindowsPlatform.h"
 #define gfxToolkitPlatform gfxWindowsPlatform
 #elif defined(ANDROID)
-#include "mozilla/dom/ContentChild.h"
 #include "gfxAndroidPlatform.h"
 #define gfxToolkitPlatform gfxAndroidPlatform
 #endif
 
-#ifdef ANDROID
 #include "nsXULAppAPI.h"
+
+#ifdef ANDROID
 #include <dirent.h>
 #include <android/log.h>
 #define ALOG(args...)  __android_log_print(ANDROID_LOG_INFO, "Gecko" , ## args)
@@ -36,6 +37,7 @@
 
 #include "gfxFT2FontList.h"
 #include "gfxFT2Fonts.h"
+#include "gfxFT2Utils.h"
 #include "gfxUserFontSet.h"
 #include "gfxFontUtils.h"
 
@@ -86,51 +88,27 @@ BuildKeyNameFromFontName(nsAString &aName)
  * then create a Cairo font_face and scaled_font for drawing.
  */
 
-cairo_scaled_font_t *
-FT2FontEntry::CreateScaledFont(const gfxFontStyle *aStyle)
+// We don't actually care about the font size here; we'll just load the font face
+// as an FT_Face object, then gfxFT2FontBase can handle sizing
+FT_Face
+FT2FontEntry::CreateFontFace()
 {
-    cairo_scaled_font_t *scaledFont = NULL;
+    if (!mFTFace) {
+        FT_Face face;
 
-    cairo_matrix_t sizeMatrix;
-    cairo_matrix_t identityMatrix;
+        if (FT_Err_Ok != FT_New_Face(gfxToolkitPlatform::GetPlatform()->GetFTLibrary(),
+                                     mFilename.get(), mFTFontIndex, &face)) {
+            NS_WARNING("failed to create freetype face");
+            return nsnull;
+        }
+        if (FT_Err_Ok != FT_Select_Charmap(face, FT_ENCODING_UNICODE)) {
+            NS_WARNING("failed to select Unicode charmap, text may be garbled");
+        }
 
-    // XXX deal with adjusted size
-    cairo_matrix_init_scale(&sizeMatrix, aStyle->size, aStyle->size);
-    cairo_matrix_init_identity(&identityMatrix);
-
-    // synthetic oblique by skewing via the font matrix
-    bool needsOblique = !IsItalic() &&
-            (aStyle->style & (NS_FONT_STYLE_ITALIC | NS_FONT_STYLE_OBLIQUE));
-
-    if (needsOblique) {
-        const double kSkewFactor = 0.25;
-
-        cairo_matrix_t style;
-        cairo_matrix_init(&style,
-                          1,                //xx
-                          0,                //yx
-                          -1 * kSkewFactor,  //xy
-                          1,                //yy
-                          0,                //x0
-                          0);               //y0
-        cairo_matrix_multiply(&sizeMatrix, &sizeMatrix, &style);
+        mFTFace = face;
     }
 
-    cairo_font_options_t *fontOptions = cairo_font_options_create();
-
-    if (!gfxPlatform::GetPlatform()->FontHintingEnabled()) {
-        cairo_font_options_set_hint_metrics(fontOptions, CAIRO_HINT_METRICS_OFF);
-    }
-
-    scaledFont = cairo_scaled_font_create(CairoFontFace(),
-                                          &sizeMatrix,
-                                          &identityMatrix, fontOptions);
-    cairo_font_options_destroy(fontOptions);
-
-    NS_ASSERTION(cairo_scaled_font_status(scaledFont) == CAIRO_STATUS_SUCCESS,
-                 "Failed to make scaled font");
-
-    return scaledFont;
+    return mFTFace;
 }
 
 FT2FontEntry::~FT2FontEntry()
@@ -149,9 +127,8 @@ FT2FontEntry::~FT2FontEntry()
 gfxFont*
 FT2FontEntry::CreateFontInstance(const gfxFontStyle *aFontStyle, bool aNeedsBold)
 {
-    cairo_scaled_font_t *scaledFont = CreateScaledFont(aFontStyle);
-    gfxFont *font = new gfxFT2Font(scaledFont, this, aFontStyle, aNeedsBold);
-    cairo_scaled_font_destroy(scaledFont);
+    FT_Face face = CreateFontFace();
+    gfxFont *font = new gfxFT2Font(face, this, aFontStyle, aNeedsBold);
     return font;
 }
 
@@ -305,17 +282,9 @@ FT2FontEntry::CairoFontFace()
 {
     static cairo_user_data_key_t key;
 
+    FT_Face face = CreateFontFace();
+
     if (!mFontFace) {
-        FT_Face face;
-        if (FT_Err_Ok != FT_New_Face(gfxToolkitPlatform::GetPlatform()->GetFTLibrary(),
-                                     mFilename.get(), mFTFontIndex, &face)) {
-            NS_WARNING("failed to create freetype face");
-            return nsnull;
-        }
-        if (FT_Err_Ok != FT_Select_Charmap(face, FT_ENCODING_UNICODE)) {
-            NS_WARNING("failed to select Unicode charmap, text may be garbled");
-        }
-        mFTFace = face;
         int flags = gfxPlatform::GetPlatform()->FontHintingEnabled() ?
                     FT_LOAD_DEFAULT :
                     (FT_LOAD_NO_AUTOHINT | FT_LOAD_NO_HINTING);
@@ -324,6 +293,7 @@ FT2FontEntry::CairoFontFace()
         cairo_font_face_set_user_data(mFontFace, &key,
                                       userFontData, FTFontDestroyFunc);
     }
+
     return mFontFace;
 }
 
@@ -720,6 +690,7 @@ AppendToFaceList(nsCString& aFaceList,
     aFaceList.AppendInt(aFontEntry->Stretch());
     aFaceList.Append(',');
 }
+#endif
 
 void
 FT2FontEntry::CheckForBrokenFont()
@@ -771,11 +742,8 @@ gfxFT2FontList::AppendFacesFromFontFile(nsCString& aFileName,
         return;
     }
 
-#ifdef XP_WIN
-    FT_Library ftLibrary = gfxWindowsPlatform::GetPlatform()->GetFTLibrary();
-#elif defined(ANDROID)
-    FT_Library ftLibrary = gfxAndroidPlatform::GetPlatform()->GetFTLibrary();
-#endif
+    FT_Library ftLibrary = gfxToolkitPlatform::GetPlatform()->GetFTLibrary();
+
     FT_Face dummy;
     if (FT_Err_Ok == FT_New_Face(ftLibrary, aFileName.get(), -1, &dummy)) {
         LOG(("reading font info via FreeType for %s", aFileName.get()));

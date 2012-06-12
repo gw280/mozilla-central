@@ -416,8 +416,7 @@ gfxFT2Font::ShapeWord(gfxContext *aContext,
 
     if (!ok && gfxPlatform::GetPlatform()->UseHarfBuzzForScript(aShapedWord->Script())) {
         if (!mHarfBuzzShaper) {
-            gfxFT2LockedFace face(this);
-            mFUnitsConvFactor = face.XScale();
+            mFUnitsConvFactor = gfxFT2Utils::XScale(mFace);
 
             mHarfBuzzShaper = new gfxHarfBuzzShaper(this);
         }
@@ -442,8 +441,7 @@ gfxFT2Font::AddRange(gfxShapedWord *aShapedWord, const PRUnichar *str)
 {
     const PRUint32 appUnitsPerDevUnit = aShapedWord->AppUnitsPerDevUnit();
     // we'll pass this in/figure it out dynamically, but at this point there can be only one face.
-    gfxFT2LockedFace faceLock(this);
-    FT_Face face = faceLock.get();
+    FT_Face face = mFace;
 
     gfxShapedWord::CompressedGlyph g;
 
@@ -532,11 +530,11 @@ gfxFT2Font::AddRange(gfxShapedWord *aShapedWord, const PRUnichar *str)
     }
 }
 
-gfxFT2Font::gfxFT2Font(cairo_scaled_font_t *aCairoFont,
+gfxFT2Font::gfxFT2Font(FT_Face aFontFace,
                        FT2FontEntry *aFontEntry,
                        const gfxFontStyle *aFontStyle,
                        bool aNeedsBold)
-    : gfxFT2FontBase(aCairoFont, aFontEntry, aFontStyle)
+    : gfxFT2FontBase(aFontFace, aFontEntry, aFontStyle)
 {
     NS_ASSERTION(mFontEntry, "Unable to find font entry for font.  Something is whack.");
     mApplySyntheticBold = aNeedsBold;
@@ -562,14 +560,9 @@ already_AddRefed<gfxFT2Font>
 gfxFT2Font::GetOrMakeFont(const nsAString& aName, const gfxFontStyle *aStyle,
                           bool aNeedsBold)
 {
-#ifdef ANDROID
     FT2FontEntry *fe = static_cast<FT2FontEntry*>
         (gfxPlatformFontList::PlatformFontList()->
             FindFontForFamily(aName, aStyle, aNeedsBold));
-#else
-    FT2FontEntry *fe = static_cast<FT2FontEntry*>
-        (gfxToolkitPlatform::GetPlatform()->FindFontEntry(aName, *aStyle));
-#endif
     if (!fe) {
         NS_WARNING("Failed to find font entry for font!");
         return nsnull;
@@ -585,9 +578,8 @@ gfxFT2Font::GetOrMakeFont(FT2FontEntry *aFontEntry, const gfxFontStyle *aStyle,
 {
     nsRefPtr<gfxFont> font = gfxFontCache::GetCache()->Lookup(aFontEntry, aStyle);
     if (!font) {
-        cairo_scaled_font_t *scaledFont = aFontEntry->CreateScaledFont(aStyle);
-        font = new gfxFT2Font(scaledFont, aFontEntry, aStyle, aNeedsBold);
-        cairo_scaled_font_destroy(scaledFont);
+        FT_Face face = aFontEntry->CreateFontFace();
+        font = new gfxFT2Font(face, aFontEntry, aStyle, aNeedsBold);
         if (!font)
             return nsnull;
         gfxFontCache::GetCache()->AddNew(font);
@@ -600,12 +592,9 @@ gfxFT2Font::GetOrMakeFont(FT2FontEntry *aFontEntry, const gfxFontStyle *aStyle,
 void
 gfxFT2Font::FillGlyphDataForChar(PRUint32 ch, CachedGlyphData *gd)
 {
-    gfxFT2LockedFace faceLock(this);
-    FT_Face face = faceLock.get();
+    FT_Face face = mFace;
 
-    if (!face->charmap || face->charmap->encoding != FT_ENCODING_UNICODE) {
-        FT_Select_Charmap(face, FT_ENCODING_UNICODE);
-    }
+    FT_Select_Charmap(mFace, FT_ENCODING_UNICODE);
     FT_UInt gid = FT_Get_Char_Index(face, ch);
 
     if (gid == 0) {
@@ -650,3 +639,4 @@ gfxFT2Font::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf,
     aSizes->mFontInstances += aMallocSizeOf(this);
     SizeOfExcludingThis(aMallocSizeOf, aSizes);
 }
+
