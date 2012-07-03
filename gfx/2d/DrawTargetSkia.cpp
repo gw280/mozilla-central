@@ -788,5 +788,5 @@ DrawTargetSkia::GetNativeSurface(NativeSurfaceType aType)
     return NULL;
 }
 
-}
-}
+} // namespace gfx
+} // namespace mozilla
