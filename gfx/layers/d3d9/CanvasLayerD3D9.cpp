@@ -141,6 +141,22 @@ CanvasLayerD3D9::UpdateSurface()
     nsRefPtr<gfxImageSurface> sourceSurface;
     nsRefPtr<gfxASurface> tempSurface;
     if (mDrawTarget) {
+      RefPtr<gfx::SourceSurface> source = mDrawTarget->Snapshot();
+      RefPtr<gfx::DataSourceSurface> data = source->GetDataSurface();
+      if (data) {
+        if (data->GetFormat() != gfx::FORMAT_B8G8R8A8) {
+            mHasAlpha = false;
+        } else {
+            mHasAlpha = true;
+        }
+        for (int y = 0; y < mBounds.height; y++) {
+          memcpy((PRUint8*)lockedRect.pBits + lockedRect.Pitch * y,
+              data->GetData() + data->Stride() * y,
+              mBounds.width * 4);
+        }
+
+        return;
+      }
       tempSurface = gfxPlatform::GetPlatform()->GetThebesSurfaceForDrawTarget(mDrawTarget);
     }
     else {

@@ -67,9 +67,16 @@ GfxInfo::GetAzureEnabled(bool *aEnabled)
   bool d2dEnabled = 
     gfxWindowsPlatform::GetPlatform()->GetRenderMode() == gfxWindowsPlatform::RENDER_DIRECT2D;
 
-  if (d2dEnabled) {
+  bool skiaEnabled;
+  nsresult rv = mozilla::Preferences::GetBool("gfx.canvas.azure.prefer-skia", &skiaEnabled);
+  if (!NS_SUCCEEDED(rv)) {
+    skiaEnabled = false;
+  }
+
+
+  if (d2dEnabled || skiaEnabled) {
     bool azure = false;
-    nsresult rv = mozilla::Preferences::GetBool("gfx.canvas.azure.enabled", &azure);
+    rv = mozilla::Preferences::GetBool("gfx.canvas.azure.enabled", &azure);
 
     if (NS_SUCCEEDED(rv) && azure) {
       *aEnabled = true;

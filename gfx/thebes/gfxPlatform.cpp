@@ -66,6 +66,10 @@
 
 #include "nsIGfxInfo.h"
 
+#ifdef MOZ_ENABLE_SKIA
+#include "skia/SkBitmap.h"
+#endif
+
 using namespace mozilla;
 using namespace mozilla::layers;
 
@@ -619,6 +623,20 @@ DestroyThebesSurface(void *data)
   surface->Release();
 }
 
+#ifdef MOZ_ENABLE_SKIA
+static inline gfxImageFormat
+SkiaConfigToThebesFormat(SkBitmap::Config aConfig)
+{
+    switch (aConfig)
+    {
+    case SkBitmap::kARGB_8888_Config: return gfxASurface::ImageFormatARGB32;
+    case SkBitmap::kRGB_565_Config: return gfxASurface::ImageFormatRGB16_565;
+    case SkBitmap::kA8_Config: return gfxASurface::ImageFormatA8;
+    default: return gfxASurface::ImageFormatARGB32;
+    }
+}
+#endif
+
 already_AddRefed<gfxASurface>
 gfxPlatform::GetThebesSurfaceForDrawTarget(DrawTarget *aTarget)
 {
@@ -634,6 +652,14 @@ gfxPlatform::GetThebesSurfaceForDrawTarget(DrawTarget *aTarget)
     cairo_surface_t* csurf =
       static_cast<cairo_surface_t*>(aTarget->GetNativeSurface(NATIVE_SURFACE_CAIRO_SURFACE));
     surf = gfxASurface::Wrap(csurf);
+#ifdef MOZ_ENABLE_SKIA
+  } else if (aTarget->GetType() == BACKEND_SKIA) {
+    SkBitmap *bitmap =
+      static_cast<SkBitmap*>(aTarget->GetNativeSurface(NATIVE_SURFACE_SKIA_BITMAP));
+    surf = new gfxImageSurface(static_cast<unsigned char*>(bitmap->getPixels()),
+                               gfxIntSize(bitmap->width(), bitmap->height()),
+                               bitmap->rowBytes(), SkiaConfigToThebesFormat(bitmap->config()));
+#endif
   } else {
     // The semantics of this part of the function are sort of weird. If we
     // don't have direct support for the backend, we snapshot the first time

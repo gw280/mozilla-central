@@ -226,6 +226,7 @@ pref("gfx.font_rendering.directwrite.use_gdi_table_loading", true);
 #ifdef XP_WIN
 pref("gfx.canvas.azure.enabled", true);
 pref("gfx.content.azure.enabled", true);
+pref("gfx.canvas.azure.prefer-skia", true);
 #else
 #ifdef XP_MACOSX
 pref("gfx.canvas.azure.enabled", true);
@@ -3511,7 +3512,7 @@ pref("gfx.xrender.enabled",true);
 #ifdef MOZ_E10S_COMPAT
 pref("gfx.direct2d.disabled", true);
 #else
-pref("gfx.direct2d.disabled", false);
+pref("gfx.direct2d.disabled", true);
 #endif
 // Whether to attempt to enable Direct2D regardless of automatic detection or
 // blacklisting
