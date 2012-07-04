@@ -394,6 +394,16 @@ gfxWindowsPlatform::~gfxWindowsPlatform()
 void
 gfxWindowsPlatform::UpdateRenderMode()
 {
+    if (UseAzureContentDrawing()) {
+        BackendType backend;
+        if (SupportsAzure(backend)) {
+            if (backend == BACKEND_SKIA) {
+                mRenderMode = RENDER_IMAGE_STRETCH32;
+                return;
+            }
+        }
+    }
+
 /* Pick the default render mode for
  * desktop.
  */
