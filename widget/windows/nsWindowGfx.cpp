@@ -306,7 +306,9 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
     switch (GetLayerManager()->GetBackendType()) {
       case LayerManager::LAYERS_BASIC:
         {
+          nsRefPtr<gfxContext> thebesContext;
           nsRefPtr<gfxASurface> targetSurface;
+          nsRefPtr<gfxImageSurface> targetSurfaceImage;
 
 #if defined(MOZ_XUL)
           // don't support transparency for non-GDI rendering, for now
@@ -351,7 +353,6 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
             targetSurface = targetSurfaceWin;
           }
 
-          nsRefPtr<gfxImageSurface> targetSurfaceImage;
           if (!targetSurface &&
               (IsRenderMode(gfxWindowsPlatform::RENDER_IMAGE_STRETCH32) ||
                IsRenderMode(gfxWindowsPlatform::RENDER_IMAGE_STRETCH24)))
@@ -371,10 +372,10 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
                                                      surfaceSize.width * 4,
                                                      gfxASurface::ImageFormatRGB24);
 
-            if (targetSurfaceImage && !targetSurfaceImage->CairoStatus()) {
-              targetSurfaceImage->SetDeviceOffset(gfxPoint(-ps.rcPaint.left, -ps.rcPaint.top));
-              targetSurface = targetSurfaceImage;
-            }
+              if (targetSurfaceImage && !targetSurfaceImage->CairoStatus()) {
+                targetSurfaceImage->SetDeviceOffset(gfxPoint(-ps.rcPaint.left, -ps.rcPaint.top));
+                targetSurface = targetSurfaceImage;
+              }
           }
 
           if (!targetSurface) {
@@ -382,7 +383,22 @@ bool nsWindow::OnPaint(HDC aDC, PRUint32 aNestingLevel)
             return false;
           }
 
-          nsRefPtr<gfxContext> thebesContext = new gfxContext(targetSurface);
+          // UseAzureContentDrawing() => RENDER_IMAGE_STRETCH32
+          if (gfxPlatform::GetPlatform()->UseAzureContentDrawing()) {
+            mozilla::gfx::IntSize size(targetSurfaceImage->Width(),
+                                       targetSurfaceImage->Height());
+
+            mozilla::RefPtr<mozilla::gfx::DrawTarget> targetTarget =
+              gfxPlatform::GetPlatform()->CreateDrawTargetForData(targetSurfaceImage->Data(),
+                                                                  size,
+                                                                  size.width * 4,
+                                                                  mozilla::gfx::FORMAT_B8G8R8X8);
+            thebesContext = new gfxContext(targetTarget);
+            thebesContext->Translate(gfxPoint(-ps.rcPaint.left, -ps.rcPaint.top));
+          } else {
+            thebesContext = new gfxContext(targetSurface);
+          }
+
           if (IsRenderMode(gfxWindowsPlatform::RENDER_DIRECT2D)) {
             const nsIntRect* r;
             for (nsIntRegionRectIterator iter(event.region);
