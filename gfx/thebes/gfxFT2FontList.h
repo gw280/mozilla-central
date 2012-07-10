@@ -12,12 +12,14 @@
 #endif
 #include "gfxPlatformFontList.h"
 
+#ifdef ANDROID
 namespace mozilla {
     namespace dom {
         class FontListEntry;
     };
 };
 using mozilla::dom::FontListEntry;
+#endif
 
 class FontNameCache;
 typedef struct FT_FaceRec_* FT_Face;
@@ -46,11 +48,13 @@ public:
     CreateFontEntry(const gfxProxyFontEntry &aProxyEntry,
                     const PRUint8 *aFontData, PRUint32 aLength);
 
+#ifdef ANDROID
     // create a font entry representing an installed font, identified by
     // a FontListEntry; the freetype and cairo faces will not be instantiated
     // until actually needed
     static FT2FontEntry*
     CreateFontEntry(const FontListEntry& aFLE);
+#endif
 
     // Create a font entry for a given freetype face; if it is an installed font,
     // also record the filename and index
@@ -93,8 +97,10 @@ public:
     FT2FontFamily(const nsAString& aName) :
         gfxFontFamily(aName) { }
 
+#ifdef ANDROID
     // Append this family's faces to the IPC fontlist
     void AddFacesToFontList(InfallibleTArray<FontListEntry>* aFontList);
+#endif
 };
 
 class gfxFT2FontList : public gfxPlatformFontList
@@ -112,7 +118,9 @@ public:
                                            const PRUint8 *aFontData,
                                            PRUint32 aLength);
 
+#ifdef ANDROID
     void GetFontList(InfallibleTArray<FontListEntry>* retValue);
+#endif
 
     static gfxFT2FontList* PlatformFontList() {
         return static_cast<gfxFT2FontList*>(gfxPlatformFontList::PlatformFontList());
@@ -121,16 +129,18 @@ public:
 protected:
     virtual nsresult InitFontList();
 
+#ifdef ANDROID
     void AppendFaceFromFontListEntry(const FontListEntry& aFLE,
                                      bool isStdFile);
-
-    void AppendFacesFromFontFile(nsCString& aFileName,
-                                 bool isStdFile = false,
-                                 FontNameCache *aCache = nsnull);
 
     void AppendFacesFromCachedFaceList(nsCString& aFileName,
                                        bool isStdFile,
                                        nsCString& aFaceList);
+#endif
+
+    void AppendFacesFromFontFile(nsCString& aFileName,
+                                 bool isStdFile = false,
+                                 FontNameCache *aCache = nsnull);
 
     void FindFonts();
 };

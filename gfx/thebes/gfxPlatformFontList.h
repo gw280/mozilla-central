@@ -85,6 +85,8 @@ class gfxPlatformFontList : protected gfxFontInfoLoader
 {
 public:
     static gfxPlatformFontList* PlatformFontList() {
+        NS_ASSERTION(sPlatformFontList != NULL,
+                     "platform font list not initialized!");
         return sPlatformFontList;
     }
 

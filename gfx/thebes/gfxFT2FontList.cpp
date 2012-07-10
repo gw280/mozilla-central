@@ -195,6 +195,7 @@ FTFontDestroyFunc(void *data)
     delete userFontData;
 }
 
+#ifdef ANDROID
 /* static */
 FT2FontEntry*
 FT2FontEntry::CreateFontEntry(const FontListEntry& aFLE)
@@ -207,6 +208,7 @@ FT2FontEntry::CreateFontEntry(const FontListEntry& aFLE)
     fe->mItalic = aFLE.italic();
     return fe;
 }
+#endif
 
 /* static */
 FT2FontEntry*
@@ -320,8 +322,12 @@ FT2FontEntry::ReadCMAP()
 
     mHasCmapTable = NS_SUCCEEDED(rv);
     if (mHasCmapTable) {
+#ifdef ANDROID
         gfxPlatformFontList *pfl = gfxPlatformFontList::PlatformFontList();
         mCharacterMap = pfl->FindCharMap(charmap);
+#else
+        mCharacterMap = charmap;
+#endif
     } else {
         // if error occurred, initialize to null cmap
         mCharacterMap = new gfxCharacterMap();
@@ -377,6 +383,7 @@ FT2FontEntry::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf,
  * the font list from chrome to content via IPC.
  */
 
+#ifdef ANDROID
 void
 FT2FontFamily::AddFacesToFontList(InfallibleTArray<FontListEntry>* aFontList)
 {
@@ -613,6 +620,7 @@ private:
         to->mFileExists = from->mFileExists;
     }
 };
+#endif
 
 /***************************************************************
  *
@@ -627,6 +635,7 @@ gfxFT2FontList::gfxFT2FontList()
 {
 }
 
+#ifdef ANDROID
 void
 gfxFT2FontList::AppendFacesFromCachedFaceList(nsCString& aFileName,
                                               bool aStdFile,
@@ -691,6 +700,7 @@ AppendToFaceList(nsCString& aFaceList,
     aFaceList.AppendInt(aFontEntry->Stretch());
     aFaceList.Append(',');
 }
+#endif
 
 void
 FT2FontEntry::CheckForBrokenFont()
@@ -728,11 +738,12 @@ gfxFT2FontList::AppendFacesFromFontFile(nsCString& aFileName,
 {
     nsCString faceList;
     PRUint32 filesize = 0, timestamp = 0;
+    struct stat s;
+#ifdef ANDROID
     if (aCache) {
         aCache->GetInfoForFile(aFileName, faceList, &timestamp, &filesize);
     }
 
-    struct stat s;
     int statRetval = stat(aFileName.get(), &s);
     if (!faceList.IsEmpty() && 0 == statRetval &&
         s.st_mtime == timestamp && s.st_size == filesize)
@@ -741,6 +752,7 @@ gfxFT2FontList::AppendFacesFromFontFile(nsCString& aFileName,
         AppendFacesFromCachedFaceList(aFileName, aStdFile, faceList);
         return;
     }
+#endif
 
     FT_Library ftLibrary = gfxToolkitPlatform::GetPlatform()->GetFTLibrary();
 
@@ -778,7 +790,9 @@ gfxFT2FontList::AppendFacesFromFontFile(nsCString& aFileName,
                 // this depends on the entry having been added to its family
                 fe->CheckForBrokenFont();
 
+#ifdef ANDROID
                 AppendToFaceList(faceList, name, fe);
+#endif
 #ifdef PR_LOGGING
                 if (LOG_ENABLED()) {
                     LOG(("(fontinit) added (%s) to family (%s)"
@@ -792,9 +806,11 @@ gfxFT2FontList::AppendFacesFromFontFile(nsCString& aFileName,
             }
         }
         FT_Done_Face(dummy);
+#ifdef ANDROID
         if (aCache && 0 == statRetval && !faceList.IsEmpty()) {
             aCache->CacheFileInfo(aFileName, faceList, timestamp, filesize);
         }
+#endif
     }
 }
 
@@ -967,6 +983,7 @@ gfxFT2FontList::FindFonts()
 #endif // XP_WIN && ANDROID
 }
 
+#ifdef ANDROID
 void
 gfxFT2FontList::AppendFaceFromFontListEntry(const FontListEntry& aFLE,
                                             bool aStdFile)
@@ -1009,6 +1026,7 @@ gfxFT2FontList::GetFontList(InfallibleTArray<FontListEntry>* retValue)
 {
     mFontFamilies.Enumerate(AddFamilyToFontList, retValue);
 }
+#endif
 
 nsresult
 gfxFT2FontList::InitFontList()

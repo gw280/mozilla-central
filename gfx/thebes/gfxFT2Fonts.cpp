@@ -39,6 +39,8 @@
 
 #include "mozilla/Preferences.h"
 
+using namespace mozilla;
+
 static PRLogModuleInfo *gFontLog = PR_NewLogModule("ft2fonts");
 
 // rounding and truncation functions for a Freetype floating point number
@@ -221,17 +223,29 @@ void gfxFT2FontGroup::GetPrefFonts(nsIAtom *aLangGroup, nsTArray<nsRefPtr<gfxFon
     aFontEntryList.AppendElements(fonts);
 }
 
-static PRInt32 GetCJKLangGroupIndex(const char *aLangGroup) {
+static const char*
+sCJKLangGroup[] = {
+    "ja",
+    "ko",
+    "zh-CN",
+    "zh-HK",
+    "zh-TW"
+};
+
+static PRInt32 GetCJKLangGroupIndex(const char *aLangGroup)
+{
     PRInt32 i;
-    for (i = 0; i < COUNT_OF_CJK_LANG_GROUP; i++) {
-        if (!PL_strcasecmp(aLangGroup, sCJKLangGroup[i]))
+    for (i = 0; i < ArrayLength(sCJKLangGroup); i++) {
+        if (!PL_strcasecmp(aLangGroup, sCJKLangGroup[i])) {
             return i;
+        }
     }
     return -1;
 }
 
 // this function assigns to the array passed in.
-void gfxFT2FontGroup::GetCJKPrefFonts(nsTArray<nsRefPtr<gfxFontEntry> >& aFontEntryList) {
+void gfxFT2FontGroup::GetCJKPrefFonts(nsTArray<nsRefPtr<gfxFontEntry> >& aFontEntryList)
+{
     gfxToolkitPlatform *platform = gfxToolkitPlatform::GetPlatform();
 
     nsCAutoString key("x-internal-cjk-");
@@ -313,7 +327,7 @@ gfxFT2FontGroup::WhichFontSupportsChar(const nsTArray<nsRefPtr<gfxFontEntry> >& 
         gfxFontEntry *fe = aFontEntryList[i].get();
         if (fe->HasCharacter(aCh)) {
             nsRefPtr<gfxFT2Font> font =
-                gfxFT2Font::GetOrMakeFont(static_cast<FontEntry*>(fe), &mStyle);
+                gfxFT2Font::GetOrMakeFont(static_cast<FT2FontEntry*>(fe), &mStyle);
             return font.forget();
         }
     }
@@ -370,7 +384,7 @@ already_AddRefed<gfxFont>
 gfxFT2FontGroup::WhichSystemFontSupportsChar(PRUint32 aCh, PRInt32 aRunScript)
 {
 #if defined(XP_WIN) || defined(ANDROID)
-    FontEntry *fe = static_cast<FontEntry*>
+    FT2FontEntry *fe = static_cast<FT2FontEntry*>
         (gfxPlatformFontList::PlatformFontList()->
             SystemFindFontForChar(aCh, aRunScript, &mStyle));
     if (fe) {

@@ -17,10 +17,8 @@ extern "C" {
 #endif
 
 class gfxFontconfigUtils;
-#ifndef MOZ_PANGO
-class FontFamily;
-class FontEntry;
-#endif
+class FT2FontFamily;
+class FT2FontEntry;
 
 typedef struct FT_LibraryRec_ *FT_Library;
 
@@ -81,13 +79,11 @@ public:
                                          PRUint32 aFormatFlags);
 #endif
 
-#ifndef MOZ_PANGO
-    FontFamily *FindFontFamily(const nsAString& aName);
-    FontEntry *FindFontEntry(const nsAString& aFamilyName, const gfxFontStyle& aFontStyle);
+    FT2FontFamily *FindFontFamily(const nsAString& aName);
+    FT2FontEntry *FindFontEntry(const nsAString& aFamilyName, const gfxFontStyle& aFontStyle);
     already_AddRefed<gfxFont> FindFontForChar(PRUint32 aCh, gfxFont *aFont);
     bool GetPrefFontEntries(const nsCString& aLangGroup, nsTArray<nsRefPtr<gfxFontEntry> > *aFontEntryList);
     void SetPrefFontEntries(const nsCString& aLangGroup, nsTArray<nsRefPtr<gfxFontEntry> >& aFontEntryList);
-#endif
 
     FT_Library GetFTLibrary();
 
@@ -120,6 +116,16 @@ public:
         } else {
             return false;
         }
+#endif
+    }
+
+    static bool UsePangoFonts() {
+#ifndef MOZ_PANGO
+        return false;
+#else
+        // Azure/Skia requires the FreeType-only gfxFont implementation
+        // rather than the Pango-based one
+        return !gfxPlatform::UseAzureContentDrawing();
 #endif
     }
 

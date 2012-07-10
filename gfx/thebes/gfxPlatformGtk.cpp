@@ -19,11 +19,11 @@
 #include "gfxContext.h"
 #include "gfxUserFontSet.h"
 #include "gfxFT2FontBase.h"
-#else
+#endif
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include "gfxFT2Fonts.h"
-#endif
+#include "gfxFT2FontList.h"
 
 #include "mozilla/gfx/2D.h"
 
@@ -59,15 +59,13 @@ using namespace mozilla::unicode;
 
 gfxFontconfigUtils *gfxPlatformGtk::sFontconfigUtils = nsnull;
 
-#ifndef MOZ_PANGO
-typedef nsDataHashtable<nsStringHashKey, nsRefPtr<FontFamily> > FontTable;
+typedef nsDataHashtable<nsStringHashKey, nsRefPtr<FT2FontFamily> > FontTable;
 typedef nsDataHashtable<nsCStringHashKey, nsTArray<nsRefPtr<gfxFontEntry> > > PrefFontTable;
 static FontTable *gPlatformFonts = NULL;
 static FontTable *gPlatformFontAliases = NULL;
 static PrefFontTable *gPrefFonts = NULL;
 static gfxSparseBitSet *gCodepointsWithNoFonts = NULL;
 static FT_Library gPlatformFTLibrary = NULL;
-#endif
 
 static cairo_user_data_key_t cairo_gdk_drawable_key;
 
@@ -83,17 +81,17 @@ gfxPlatformGtk::gfxPlatformGtk()
     sUseXRender = mozilla::Preferences::GetBool("gfx.xrender.enabled");
 #endif
 
-#ifndef MOZ_PANGO
-    FT_Init_FreeType(&gPlatformFTLibrary);
-    gPlatformFonts = new FontTable();
-    gPlatformFonts->Init(100);
-    gPlatformFontAliases = new FontTable();
-    gPlatformFontAliases->Init(100);
-    gPrefFonts = new PrefFontTable();
-    gPrefFonts->Init(100);
-    gCodepointsWithNoFonts = new gfxSparseBitSet();
-    UpdateFontList();
-#endif
+    if (!UsePangoFonts()) {
+        FT_Init_FreeType(&gPlatformFTLibrary);
+        gPlatformFonts = new FontTable();
+        gPlatformFonts->Init(100);
+        gPlatformFontAliases = new FontTable();
+        gPlatformFontAliases->Init(100);
+        gPrefFonts = new PrefFontTable();
+        gPrefFonts->Init(100);
+        gCodepointsWithNoFonts = new gfxSparseBitSet();
+        UpdateFontList();
+    }
 }
 
 gfxPlatformGtk::~gfxPlatformGtk()
@@ -101,28 +99,30 @@ gfxPlatformGtk::~gfxPlatformGtk()
     gfxFontconfigUtils::Shutdown();
     sFontconfigUtils = nsnull;
 
+    if (UsePangoFonts()) {
 #ifdef MOZ_PANGO
-    gfxPangoFontGroup::Shutdown();
-#else
-    delete gPlatformFonts;
-    gPlatformFonts = NULL;
-    delete gPlatformFontAliases;
-    gPlatformFontAliases = NULL;
-    delete gPrefFonts;
-    gPrefFonts = NULL;
-    delete gCodepointsWithNoFonts;
-    gCodepointsWithNoFonts = NULL;
+        gfxPangoFontGroup::Shutdown();
+#endif
+    } else {
+        delete gPlatformFonts;
+        gPlatformFonts = NULL;
+        delete gPlatformFontAliases;
+        gPlatformFontAliases = NULL;
+        delete gPrefFonts;
+        gPrefFonts = NULL;
+        delete gCodepointsWithNoFonts;
+        gCodepointsWithNoFonts = NULL;
 
 #ifdef NS_FREE_PERMANENT_DATA
-    // do cairo cleanup *before* closing down the FTLibrary,
-    // otherwise we'll crash when the gfxPlatform destructor
-    // calls it (bug 605009)
-    cairo_debug_reset_static_data();
+        // do cairo cleanup *before* closing down the FTLibrary,
+        // otherwise we'll crash when the gfxPlatform destructor
+        // calls it (bug 605009)
+        cairo_debug_reset_static_data();
 
-    FT_Done_FreeType(gPlatformFTLibrary);
-    gPlatformFTLibrary = NULL;
+        FT_Done_FreeType(gPlatformFTLibrary);
+        gPlatformFTLibrary = NULL;
 #endif
-#endif
+    }
 
 #if 0
     // It would be nice to do this (although it might need to be after
@@ -224,7 +224,11 @@ gfxPlatformGtk::CreateFontGroup(const nsAString &aFamilies,
                                 const gfxFontStyle *aStyle,
                                 gfxUserFontSet *aUserFontSet)
 {
-    return new gfxPangoFontGroup(aFamilies, aStyle, aUserFontSet);
+    if (UsePangoFonts()) {
+        return new gfxPangoFontGroup(aFamilies, aStyle, aUserFontSet);
+    } else {
+        return new gfxFT2FontGroup(aFamilies, aStyle, aUserFontSet);
+    }
 }
 
 gfxFontEntry*
@@ -305,13 +309,13 @@ gfxPlatformGtk::UpdateFontList()
         nsAutoString name(NS_ConvertUTF8toUTF16(nsDependentCString(str)).get());
         nsAutoString key(name);
         ToLowerCase(key);
-        nsRefPtr<FontFamily> ff;
+        nsRefPtr<FT2FontFamily> ff;
         if (!gPlatformFonts->Get(key, &ff)) {
-            ff = new FontFamily(name);
+            ff = new FT2FontFamily(name);
             gPlatformFonts->Put(key, ff);
         }
 
-        FontEntry *fe = new FontEntry(ff->Name());
+        FT2FontEntry *fe = new FT2FontEntry(ff->Name());
         ff->AddFontEntry(fe);
 
         if (FcPatternGetString(fs->fonts[i], FC_FILE, 0, (FcChar8 **) &str) == FcResultMatch) {
@@ -365,7 +369,7 @@ gfxPlatformGtk::ResolveFontName(const nsAString& aFontName,
     nsAutoString name(aFontName);
     ToLowerCase(name);
 
-    nsRefPtr<FontFamily> ff;
+    nsRefPtr<FT2FontFamily> ff;
     if (gPlatformFonts->Get(name, &ff) ||
         gPlatformFontAliases->Get(name, &ff)) {
         aAborted = !(*aCallback)(ff->Name(), aClosure);
@@ -608,40 +612,37 @@ gfxPlatformGtk::GetPlatformCMSOutputProfile()
 FT_Library
 gfxPlatformGtk::GetFTLibrary()
 {
-#ifndef MOZ_PANGO
+    NS_ASSERTION(UsePangoFonts() == true, "This should never be called if we're using Pango");
     return gPlatformFTLibrary;
-#else
-    return nsnull;
-#endif
 }
 
-#ifndef MOZ_PANGO
-FontFamily *
+FT2FontFamily *
 gfxPlatformGtk::FindFontFamily(const nsAString& aName)
 {
     nsAutoString name(aName);
     ToLowerCase(name);
 
-    nsRefPtr<FontFamily> ff;
+    nsRefPtr<FT2FontFamily> ff;
     if (!gPlatformFonts->Get(name, &ff)) {
         return nsnull;
     }
     return ff.get();
 }
 
-FontEntry *
+FT2FontEntry *
 gfxPlatformGtk::FindFontEntry(const nsAString& aName, const gfxFontStyle& aFontStyle)
 {
-    nsRefPtr<FontFamily> ff = FindFontFamily(aName);
+    nsRefPtr<FT2FontFamily> ff = FindFontFamily(aName);
     if (!ff)
         return nsnull;
 
-    return ff->FindFontEntry(aFontStyle);
+    bool needsBold;
+    return static_cast<FT2FontEntry*>(ff->FindFontForStyle(aFontStyle, needsBold));
 }
 
 static PLDHashOperator
 FindFontForCharProc(nsStringHashKey::KeyType aKey,
-                    nsRefPtr<FontFamily>& aFontFamily,
+                    nsRefPtr<FT2FontFamily>& aFontFamily,
                     void* aUserArg)
 {
     GlobalFontMatch *data = (GlobalFontMatch*)aUserArg;
@@ -668,7 +669,7 @@ gfxPlatformGtk::FindFontForChar(PRUint32 aCh, gfxFont *aFont)
 
     if (data.mBestMatch) {
         nsRefPtr<gfxFT2Font> font =
-            gfxFT2Font::GetOrMakeFont(static_cast<FontEntry*>(data.mBestMatch.get()),
+            gfxFT2Font::GetOrMakeFont(static_cast<FT2FontEntry*>(data.mBestMatch.get()),
                                       aFont->GetStyle()); 
         gfxFont* ret = font.forget().get();
         return already_AddRefed<gfxFont>(ret);
@@ -691,7 +692,6 @@ gfxPlatformGtk::SetPrefFontEntries(const nsCString& aKey, nsTArray<nsRefPtr<gfxF
 {
     gPrefFonts->Put(aKey, aFontEntryList);
 }
-#endif
 
 #if (MOZ_WIDGET_GTK == 2)
 void
