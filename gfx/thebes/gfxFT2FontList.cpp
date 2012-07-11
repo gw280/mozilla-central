@@ -631,7 +631,7 @@ private:
 // For Mobile, we use gfxFT2Fonts, and we build the font list by directly
 // scanning the system's Fonts directory for OpenType and TrueType files.
 
-gfxFT2FontList::gfxFT2FontList()
+gfxFT2FontList::gfxFT2FontList() : gfxPlatformFontList()
 {
 }
 

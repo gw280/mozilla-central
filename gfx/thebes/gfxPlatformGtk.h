@@ -84,6 +84,7 @@ public:
     already_AddRefed<gfxFont> FindFontForChar(PRUint32 aCh, gfxFont *aFont);
     bool GetPrefFontEntries(const nsCString& aLangGroup, nsTArray<nsRefPtr<gfxFontEntry> > *aFontEntryList);
     void SetPrefFontEntries(const nsCString& aLangGroup, nsTArray<nsRefPtr<gfxFontEntry> >& aFontEntryList);
+    virtual gfxPlatformFontList* CreatePlatformFontList();
 
     FT_Library GetFTLibrary();
 
