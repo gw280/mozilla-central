@@ -17,10 +17,8 @@ extern "C" {
 #endif
 
 class gfxFontconfigUtils;
-#ifndef MOZ_PANGO
 class FT2FontFamily;
 class FT2FontEntry;
-#endif
 
 typedef struct FT_LibraryRec_ *FT_Library;
 
@@ -81,16 +79,22 @@ public:
                                          PRUint32 aFormatFlags);
 #endif
 
-#ifndef MOZ_PANGO
     FT2FontFamily *FindFontFamily(const nsAString& aName);
     FT2FontEntry *FindFontEntry(const nsAString& aFamilyName, const gfxFontStyle& aFontStyle);
     already_AddRefed<gfxFont> FindFontForChar(PRUint32 aCh, gfxFont *aFont);
     bool GetPrefFontEntries(const nsCString& aLangGroup, nsTArray<nsRefPtr<gfxFontEntry> > *aFontEntryList);
     void SetPrefFontEntries(const nsCString& aLangGroup, nsTArray<nsRefPtr<gfxFontEntry> >& aFontEntryList);
-#endif
 
     FT_Library GetFTLibrary();
     virtual gfxPlatformFontList* CreatePlatformFontList();
+
+    bool UsePangoFonts() {
+#ifdef MOZ_PANGO
+        return sUsePango;
+#else
+        return false;
+#endif
+    }
 
 #if (MOZ_WIDGET_GTK == 2)
     static void SetGdkDrawable(gfxASurface *target,
@@ -111,14 +115,9 @@ public:
         // with bad drivers where we'd like to also use client side 
         // rendering, but until we have the ability to featuer test 
         // this, we'll only disable this for maemo.
-        return true;
+        return false;
 #elif defined(MOZ_X11)
-        if (gfxPlatform::UseAzureContentDrawing()) {
-            // We want to use image surfaces with Azure
-            return false;
-        } else {
-            return sUseXRender;
-        }
+        return sUseXRender;
 #endif
     }
 
@@ -132,6 +131,7 @@ private:
 #ifdef MOZ_X11
     static bool sUseXRender;
 #endif
+    static bool sUsePango;
 };
 
 #endif /* GFX_PLATFORM_GTK_H */
