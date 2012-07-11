@@ -314,6 +314,9 @@ CPPSRCS += gfxXlibSurface.cpp gfxQtNativeRenderer.cpp gfxFT2Fonts.cpp
 endif
 ifdef MOZ_PANGO
 CPPSRCS += gfxPangoFonts.cpp
+CPPSRCS += gfxFT2Fonts.cpp \
+	gfxFT2FontList.cpp \
+	$(NULL)
 endif
 CPPSRCS +=	gfxCairoFTFont.cpp
 CPPSRCS +=	gfxFT2FontBase.cpp

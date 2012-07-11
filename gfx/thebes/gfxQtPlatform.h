@@ -17,10 +17,9 @@
 class gfxFontconfigUtils;
 class QWidget;
 #ifndef MOZ_PANGO
+class FT2FontFamily;
+class FT2FontEntry;
 typedef struct FT_LibraryRec_ *FT_Library;
-
-class FontFamily;
-class FontEntry;
 #endif
 
 class THEBES_API gfxQtPlatform : public gfxPlatform {
@@ -90,8 +89,8 @@ public:
 #endif
 
 #ifndef MOZ_PANGO
-    FontFamily *FindFontFamily(const nsAString& aName);
-    FontEntry *FindFontEntry(const nsAString& aFamilyName, const gfxFontStyle& aFontStyle);
+    FT2FontFamily *FindFontFamily(const nsAString& aName);
+    FT2FontEntry *FindFontEntry(const nsAString& aFamilyName, const gfxFontStyle& aFontStyle);
     already_AddRefed<gfxFont> FindFontForChar(PRUint32 aCh, gfxFont *aFont);
     bool GetPrefFontEntries(const nsCString& aLangGroup, nsTArray<nsRefPtr<gfxFontEntry> > *aFontEntryList);
     void SetPrefFontEntries(const nsCString& aLangGroup, nsTArray<nsRefPtr<gfxFontEntry> >& aFontEntryList);
