@@ -23,6 +23,7 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include "gfxFT2Fonts.h"
+#include "gfxFT2FontList.h"
 #endif
 
 #include "mozilla/gfx/2D.h"
@@ -60,7 +61,7 @@ using namespace mozilla::unicode;
 gfxFontconfigUtils *gfxPlatformGtk::sFontconfigUtils = nsnull;
 
 #ifndef MOZ_PANGO
-typedef nsDataHashtable<nsStringHashKey, nsRefPtr<FontFamily> > FontTable;
+typedef nsDataHashtable<nsStringHashKey, nsRefPtr<FT2FontFamily> > FontTable;
 typedef nsDataHashtable<nsCStringHashKey, nsTArray<nsRefPtr<gfxFontEntry> > > PrefFontTable;
 static FontTable *gPlatformFonts = NULL;
 static FontTable *gPlatformFontAliases = NULL;
@@ -305,13 +306,13 @@ gfxPlatformGtk::UpdateFontList()
         nsAutoString name(NS_ConvertUTF8toUTF16(nsDependentCString(str)).get());
         nsAutoString key(name);
         ToLowerCase(key);
-        nsRefPtr<FontFamily> ff;
+        nsRefPtr<FT2FontFamily> ff;
         if (!gPlatformFonts->Get(key, &ff)) {
-            ff = new FontFamily(name);
+            ff = new FT2FontFamily(name);
             gPlatformFonts->Put(key, ff);
         }
 
-        FontEntry *fe = new FontEntry(ff->Name());
+        FT2FontEntry *fe = new FT2FontEntry(ff->Name());
         ff->AddFontEntry(fe);
 
         if (FcPatternGetString(fs->fonts[i], FC_FILE, 0, (FcChar8 **) &str) == FcResultMatch) {
@@ -365,7 +366,7 @@ gfxPlatformGtk::ResolveFontName(const nsAString& aFontName,
     nsAutoString name(aFontName);
     ToLowerCase(name);
 
-    nsRefPtr<FontFamily> ff;
+    nsRefPtr<FT2FontFamily> ff;
     if (gPlatformFonts->Get(name, &ff) ||
         gPlatformFontAliases->Get(name, &ff)) {
         aAborted = !(*aCallback)(ff->Name(), aClosure);
@@ -616,32 +617,33 @@ gfxPlatformGtk::GetFTLibrary()
 }
 
 #ifndef MOZ_PANGO
-FontFamily *
+FT2FontFamily *
 gfxPlatformGtk::FindFontFamily(const nsAString& aName)
 {
     nsAutoString name(aName);
     ToLowerCase(name);
 
-    nsRefPtr<FontFamily> ff;
+    nsRefPtr<FT2FontFamily> ff;
     if (!gPlatformFonts->Get(name, &ff)) {
         return nsnull;
     }
     return ff.get();
 }
 
-FontEntry *
+FT2FontEntry *
 gfxPlatformGtk::FindFontEntry(const nsAString& aName, const gfxFontStyle& aFontStyle)
 {
-    nsRefPtr<FontFamily> ff = FindFontFamily(aName);
+    nsRefPtr<FT2FontFamily> ff = FindFontFamily(aName);
     if (!ff)
         return nsnull;
 
-    return ff->FindFontEntry(aFontStyle);
+    bool needsBold;
+    return static_cast<FT2FontEntry*>(ff->FindFontForStyle(aFontStyle, needsBold));
 }
 
 static PLDHashOperator
 FindFontForCharProc(nsStringHashKey::KeyType aKey,
-                    nsRefPtr<FontFamily>& aFontFamily,
+                    nsRefPtr<FT2FontFamily>& aFontFamily,
                     void* aUserArg)
 {
     GlobalFontMatch *data = (GlobalFontMatch*)aUserArg;
@@ -668,7 +670,7 @@ gfxPlatformGtk::FindFontForChar(PRUint32 aCh, gfxFont *aFont)
 
     if (data.mBestMatch) {
         nsRefPtr<gfxFT2Font> font =
-            gfxFT2Font::GetOrMakeFont(static_cast<FontEntry*>(data.mBestMatch.get()),
+            gfxFT2Font::GetOrMakeFont(static_cast<FT2FontEntry*>(data.mBestMatch.get()),
                                       aFont->GetStyle()); 
         gfxFont* ret = font.forget().get();
         return already_AddRefed<gfxFont>(ret);

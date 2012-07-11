@@ -71,8 +71,8 @@ static PRUint32 gGlyphExtentsSetupFallBackToTight = 0;
 void
 gfxCharacterMap::NotifyReleased()
 {
-    gfxPlatformFontList *fontlist = gfxPlatformFontList::PlatformFontList();
     if (mShared) {
+        gfxPlatformFontList *fontlist = gfxPlatformFontList::PlatformFontList();
         fontlist->RemoveCmap(this);
     }
     delete this;
