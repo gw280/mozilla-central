@@ -606,6 +606,18 @@ gfxPlatformGtk::GetPlatformCMSOutputProfile()
 }
 
 
+#ifndef MOZ_PANGO
+gfxPlatformFontList*
+gfxQtPlatform::CreatePlatformFontList()
+{
+    gfxPlatformFontList* list = new gfxFT2FontList();
+    if (NS_SUCCEEDED(list->InitFontList())) {
+        return list;
+    }
+    gfxPlatformFontList::Shutdown();
+    return nsnull;
+}
+
 FT_Library
 gfxPlatformGtk::GetFTLibrary()
 {

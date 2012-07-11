@@ -100,6 +100,7 @@ public:
 
 #ifndef MOZ_PANGO
     FT_Library GetFTLibrary();
+    virtual gfxPlatformFontList* CreatePlatformFontList();
 #endif
 
     RenderMode GetRenderMode() { return mRenderMode; }

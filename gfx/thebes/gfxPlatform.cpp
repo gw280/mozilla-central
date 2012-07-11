@@ -317,7 +317,7 @@ gfxPlatform::Init()
 
     nsresult rv;
 
-#if defined(XP_MACOSX) || defined(XP_WIN) || defined(ANDROID) // temporary, until this is implemented on others
+#if defined(XP_MACOSX) || defined(XP_WIN) || defined(ANDROID) || defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT) // temporary, until this is implemented on others
     rv = gfxPlatformFontList::Init();
     if (NS_FAILED(rv)) {
         NS_RUNTIMEABORT("Could not initialize gfxPlatformFontList");

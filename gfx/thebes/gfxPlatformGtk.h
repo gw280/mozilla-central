@@ -90,6 +90,7 @@ public:
 #endif
 
     FT_Library GetFTLibrary();
+    virtual gfxPlatformFontList* CreatePlatformFontList();
 
 #if (MOZ_WIDGET_GTK == 2)
     static void SetGdkDrawable(gfxASurface *target,

@@ -6,10 +6,12 @@
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/Util.h"
 
-#if defined(MOZ_WIDGET_GTK2)
+#if defined(MOZ_WIDGET_GTK)
+#include "mozilla/dom/ContentChild.h"
 #include "gfxPlatformGtk.h"
 #define gfxToolkitPlatform gfxPlatformGtk
 #elif defined(MOZ_WIDGET_QT)
+#include "mozilla/dom/ContentChild.h"
 #include <qfontinfo.h>
 #include "gfxQtPlatform.h"
 #define gfxToolkitPlatform gfxQtPlatform
@@ -382,7 +384,7 @@ FT2FontEntry::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf,
  * the font list from chrome to content via IPC.
  */
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(MOZ_WIDGET_QT) || defined(MOZ_WIDGET_GTK)
 void
 FT2FontFamily::AddFacesToFontList(InfallibleTArray<FontListEntry>* aFontList)
 {
@@ -979,7 +981,41 @@ gfxFT2FontList::FindFonts()
     // and marking "simple" families.
     // Passing non-null userData here says that we want faces to be sorted.
     mFontFamilies.Enumerate(FinalizeFamilyMemberList, this);
+#elif defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
+    gfxFontCache *fc = gfxFontCache::GetCache();
+    if (fc)
+        fc->AgeAllGenerations();
+    mPrefFonts.Clear();
+    mCodepointsWithNoFonts.reset();
+
+    mCodepointsWithNoFonts.SetRange(0,0x1f);     // C0 controls
+    mCodepointsWithNoFonts.SetRange(0x7f,0x9f);  // C1 controls
+
+    // Chrome process: get the cached list (if any)
+    FontNameCache fnc;
+
+    FcPattern *pat = NULL;
+    FcObjectSet *os = NULL;
+    FcFontSet *fs = NULL;
+    pat = FcPatternCreate();
+    os = FcObjectSetBuild(FC_FAMILY, FC_FILE, FC_INDEX, FC_WEIGHT, FC_SLANT, FC_WIDTH, NULL);
+    fs = FcFontList(NULL, pat, os);
+    for (int i = 0; i < fs->nfont; i++) {
+        char *file;
+        if (FcPatternGetString(fs->fonts[i], FC_FILE, 0, (FcChar8 **) &file) != FcResultMatch)
+            continue;
+        nsCString s(file);
+        AppendFacesFromFontFile(s, false, &fnc);
+    }
+    if (pat)
+        FcPatternDestroy(pat);
+    if (os)
+        FcObjectSetDestroy(os);
+    if (fs)
+        FcFontSetDestroy(fs);
+    mFontFamilies.Enumerate(FinalizeFamilyMemberList, this);
 #endif // XP_WIN && ANDROID
+
 }
 
 #ifdef ANDROID

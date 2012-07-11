@@ -12,7 +12,7 @@
 #endif
 #include "gfxPlatformFontList.h"
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
 namespace mozilla {
     namespace dom {
         class FontListEntry;
@@ -97,7 +97,7 @@ public:
     FT2FontFamily(const nsAString& aName) :
         gfxFontFamily(aName) { }
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(MOZ_WIDGET_GTK) || defined(MOZ_WIDGET_QT)
     // Append this family's faces to the IPC fontlist
     void AddFacesToFontList(InfallibleTArray<FontListEntry>* aFontList);
 #endif
