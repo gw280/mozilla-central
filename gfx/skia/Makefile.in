@@ -315,8 +315,7 @@ endif
 ifeq (android,$(MOZ_WIDGET_TOOLKIT))
 CPPSRCS += \
 	SkDebug_android.cpp \
-	SkFontHost_android_old.cpp \
-	SkFontHost_FreeType.cpp \
+	SkFontHost_cairo.cpp \
 	SkFontHost_FreeType_common.cpp \
 	SkFontHost_tables.cpp \
 	SkMMapStream.cpp \
@@ -325,7 +324,12 @@ CPPSRCS += \
 	$(NULL)
 
 DEFINES += -DSK_BUILD_FOR_ANDROID_NDK
-OS_CXXFLAGS += $(CAIRO_FT_CFLAGS)
+EXPORTS_skia += \
+	include/ports/SkTypeface_cairo.h \
+	$(NULL)
+
+OS_CXXFLAGS += $(MOZ_CAIRO_CFLAGS) $(CAIRO_FT_CFLAGS)
+OS_CFLAGS += $(MOZ_CAIRO_CFLAGS) $(CAIRO_FT_CFLAGS)
 else
 CPPSRCS += \
 	SkDebug_stdio.cpp \
@@ -335,16 +339,20 @@ endif
 
 ifeq (gtk2,$(MOZ_WIDGET_TOOLKIT))
 CPPSRCS += \
-	SkFontHost_FreeType.cpp \
+	SkFontHost_cairo.cpp \
 	SkFontHost_FreeType_common.cpp \
-	SkFontHost_linux.cpp \
 	SkFontHost_tables.cpp \
 	SkTime_Unix.cpp \
 	SkMMapStream.cpp \
 	SkOSFile.cpp \
 	$(NULL)
 
-OS_CXXFLAGS += $(MOZ_PANGO_CFLAGS)
+EXPORTS_skia += \
+	include/ports/SkTypeface_cairo.h \
+	$(NULL)
+
+OS_CXXFLAGS += $(MOZ_CAIRO_CFLAGS) $(CAIRO_FT_CFLAGS)
+OS_CFLAGS += $(MOZ_CAIRO_CFLAGS) $(CAIRO_FT_CFLAGS)
 endif
 
 ifeq (qt,$(MOZ_WIDGET_TOOLKIT))
