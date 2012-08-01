@@ -367,8 +367,9 @@ ifeq (android,$(MOZ_WIDGET_TOOLKIT))
 CPPSRCS += \
 	ashmem.cpp \
 	SkDebug_android.cpp \
-	SkFontHost_none.cpp \
 	SkImageRef_ashmem.cpp \
+	SkFontHost_cairo.cpp \
+	SkFontHost_FreeType_common.cpp \
 	SkTime_Unix.cpp \
 	SkThread_pthread.cpp \
 	SkThreadUtils_pthread.cpp \
@@ -376,6 +377,12 @@ CPPSRCS += \
 
 OS_CXXFLAGS += $(CAIRO_FT_CFLAGS)
 DEFINES += -DSK_USE_POSIX_THREADS=1
+EXPORTS_skia += \
+	include/ports/SkTypeface_cairo.h \
+	$(NULL)
+
+OS_CXXFLAGS += $(MOZ_CAIRO_CFLAGS) $(CAIRO_FT_CFLAGS)
+OS_CFLAGS += $(MOZ_CAIRO_CFLAGS) $(CAIRO_FT_CFLAGS)
 else
 CPPSRCS += \
 	SkDebug_stdio.cpp \
@@ -385,16 +392,20 @@ endif
 
 ifeq (gtk2,$(MOZ_WIDGET_TOOLKIT))
 CPPSRCS += \
-	SkFontHost_FreeType.cpp \
+	SkFontHost_cairo.cpp \
 	SkFontHost_FreeType_common.cpp \
-	SkFontHost_linux.cpp \
 	SkThreadUtils_pthread.cpp \
 	SkThreadUtils_pthread_linux.cpp \
 	SkTime_Unix.cpp \
 	SkOSFile.cpp \
 	$(NULL)
 
-OS_CXXFLAGS += $(MOZ_PANGO_CFLAGS)
+EXPORTS_skia += \
+	include/ports/SkTypeface_cairo.h \
+	$(NULL)
+
+OS_CXXFLAGS += $(MOZ_CAIRO_CFLAGS) $(CAIRO_FT_CFLAGS)
+OS_CFLAGS += $(MOZ_CAIRO_CFLAGS) $(CAIRO_FT_CFLAGS)
 endif
 
 ifeq (qt,$(MOZ_WIDGET_TOOLKIT))
