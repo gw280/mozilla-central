@@ -168,10 +168,12 @@ elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
         'SkTime_win.cpp',
     ]
 elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gtk2':
+    EXPORTS.skia += [
+        'include/ports/SkTypeface_cairo.h',
+    ]
     CPP_SOURCES += [
-        'SkFontHost_FreeType.cpp',
+        'SkFontHost_cairo.cpp',
         'SkFontHost_FreeType_common.cpp',
-        'SkFontHost_linux.cpp',
         'SkThreadUtils_pthread.cpp',
         'SkThreadUtils_pthread_linux.cpp',
         'SkTime_Unix.cpp',
@@ -179,13 +181,15 @@ elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gtk2':
     ]
 elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'qt':
     CPP_SOURCES += [
-        'SkFontHost_FreeType.cpp',
+        'SkFontHost_cairo.cpp',
         'SkFontHost_FreeType_common.cpp',
         'SkOSFile.cpp',
     ]
     if CONFIG['OS_TARGET'] == 'Linux':
+        EXPORTS.skia += [
+            'include/ports/SkTypeface_cairo.h',
+        ]
         CPP_SOURCES += [
-            'SkFontHost_linux.cpp',
             'SkThreadUtils_pthread.cpp',
             'SkThreadUtils_pthread_linux.cpp',
             'SkTime_Unix.cpp',
@@ -195,10 +199,12 @@ elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'qt':
 # Separate 'if' from above, since the else below applies to all != 'android'
 # toolkits.
 if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'android':
+    EXPORTS.skia += [
+        'include/ports/SkTypeface_cairo.h',
+    ]
     CPP_SOURCES += [
         'SkDebug_android.cpp',
-        'SkFontHost_android_old.cpp',
-        'SkFontHost_FreeType.cpp',
+        'SkFontHost_cairo.cpp',
         'SkFontHost_FreeType_common.cpp',
         'SkTime_Unix.cpp',
         'SkThread_pthread.cpp',
