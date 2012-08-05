@@ -68,6 +68,8 @@ public: // new functions
     virtual void SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf,
                                      FontCacheSizes*   aSizes) const;
 
+    virtual mozilla::TemporaryRef<mozilla::gfx::GlyphRenderingOptions> GetGlyphRenderingOptions();
+
 protected:
     virtual bool ShapeText(gfxContext      *aContext,
                            const PRUnichar *aText,
