@@ -6,6 +6,7 @@
 #include "DrawTargetSkia.h"
 #include "SourceSurfaceSkia.h"
 #include "ScaledFontBase.h"
+#include "ScaledFontCairo.h"
 #include "skia/SkDevice.h"
 
 #ifdef USE_SKIA_GPU
@@ -445,7 +446,7 @@ DrawTargetSkia::FillGlyphs(ScaledFont *aFont,
                            const GlyphBuffer &aBuffer,
                            const Pattern &aPattern,
                            const DrawOptions &aOptions,
-                           const GlyphRenderingOptions*)
+                           const GlyphRenderingOptions *aRenderingOptions)
 {
   if (aFont->GetType() != FONT_MAC &&
       aFont->GetType() != FONT_SKIA &&
@@ -461,7 +462,13 @@ DrawTargetSkia::FillGlyphs(ScaledFont *aFont,
   paint.mPaint.setTypeface(skiaFont->GetSkTypeface());
   paint.mPaint.setTextSize(SkFloatToScalar(skiaFont->mSize));
   paint.mPaint.setTextEncoding(SkPaint::kGlyphID_TextEncoding);
-  
+
+  if (aRenderingOptions && static_cast<const GlyphRenderingOptionsCairo*>(aRenderingOptions)->GetHinting()) {
+    paint.mPaint.setHinting(SkPaint::kNormal_Hinting);
+  } else {
+    paint.mPaint.setHinting(SkPaint::kNo_Hinting);
+  }
+
   std::vector<uint16_t> indices;
   std::vector<SkPoint> offsets;
   indices.resize(aBuffer.mNumGlyphs);

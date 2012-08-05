@@ -36,6 +36,7 @@
 #include "prinit.h"
 
 #include "mozilla/Preferences.h"
+#include "mozilla/gfx/2D.h"
 
 // rounding and truncation functions for a Freetype floating point number
 // (FT26Dot6) stored in a 32bit integer with high 26 bits for the integer
@@ -659,3 +660,13 @@ gfxFT2Font::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf,
     aSizes->mFontInstances += aMallocSizeOf(this);
     SizeOfExcludingThis(aMallocSizeOf, aSizes);
 }
+
+#ifdef USE_SKIA
+mozilla::TemporaryRef<mozilla::gfx::GlyphRenderingOptions>
+gfxFT2Font::GetGlyphRenderingOptions()
+{
+  return mozilla::gfx::Factory::CreateCairoGlyphRenderingOptions(
+    gfxPlatform::GetPlatform()->FontHintingEnabled());
+}
+#endif
+
