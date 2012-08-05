@@ -8,14 +8,16 @@
 
 #include "ScaledFontBase.h"
 
+#include "cairo.h"
+
 namespace mozilla {
 namespace gfx {
 
-class ScaledFontFreetype : public ScaledFontBase
+class ScaledFontCairo : public ScaledFontBase
 {
 public:
 
-  ScaledFontFreetype(FontOptions* aFont, Float aSize);
+  ScaledFontCairo(cairo_scaled_font_t* aScaledFont, Float aSize);
 };
 
 }
