@@ -406,11 +406,15 @@ endif
 else
 ifeq ($(CPU_ARCH)_$(GNU_CC),arm_1)
 CPPSRCS += \
+	SkBitmapProcState_arm_neon.cpp \
 	SkBitmapProcState_opts_arm.cpp \
+	SkBitmapProcState_matrixProcs_neon.cpp \
 	SkBlitRow_opts_arm.cpp \
+	SkBlitRow_opts_arm_neon.cpp \
+	SkUtilsArm.cpp \
 	opts_check_arm.cpp \
 	$(NULL)
-SSRCS += memset.arm.S
+SSRCS += memset.arm.S memset32_neon.S memset16_neon.S
 else
 CPPSRCS += \
 	SkBitmapProcState_opts_none.cpp \
@@ -429,6 +433,16 @@ SkBitmapProcState_opts_SSSE3.$(OBJ_SUFFIX): CXXFLAGS+=-mssse3
 SkBlitRow_opts_SSE2.$(OBJ_SUFFIX): CXXFLAGS+=-msse2
 SkBlitRect_opts_SSE2.$(OBJ_SUFFIX): CXXFLAGS+=-msse2
 SkUtils_opts_SSE2.$(OBJ_SUFFIX): CXXFLAGS+=-msse2
+endif
+endif
+
+ifeq ($(CPU_ARCH)_$(GNU_CC),arm_1)
+ifdef GNU_CC
+# Turn on NEON for these files, but due to a bug unless we have -ftree-ter enabled,
+# building these files will result in an internal compiler error.
+SkBitmapProcState_arm_neon.$(OBJ_SUFFIX): CXXFLAGS+=-mfpu=neon -ftree-ter
+SkBitmapProcState_matrixProcs_neon.$(OBJ_SUFFIX): CXXFLAGS+=-mfpu=neon -ftree-ter
+SkBlitRow_opts_arm_neon.$(OBJ_SUFFIX): CXXFLAGS+=-mfpu=neon -ftree-ter
 endif
 endif
 
