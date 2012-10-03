@@ -386,6 +386,8 @@ CPPSRCS += \
 	$(NULL)
 ifdef _MSC_VER
 HAVE_COMPILER_FLAG_MSSSE3=1
+# Build with fast math option
+OS_CXXFLAGS += -fp:fast
 endif
 endif
 
@@ -431,8 +433,8 @@ endif
 endif
 
 ifdef GNU_CC
-CXXFLAGS := $(filter-out -pedantic,$(CXXFLAGS))
-CFLAGS := $(filter-out -pedantic,$(CFLAGS))
+CXXFLAGS := $(filter-out -pedantic,$(CXXFLAGS)) -ffast-math
+CFLAGS := $(filter-out -pedantic,$(CFLAGS)) -ffast-math
 endif
 
 ifeq ($(CPU_ARCH)_$(GNU_CC),arm_1)
