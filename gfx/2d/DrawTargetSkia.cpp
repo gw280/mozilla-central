@@ -6,7 +6,10 @@
 #include "DrawTargetSkia.h"
 #include "SourceSurfaceSkia.h"
 #include "ScaledFontBase.h"
+#include "skia/GrContext.h"
+#include "skia/GrGLInterface.h"
 #include "skia/SkDevice.h"
+#include "skia/SkGpuDevice.h"
 #include "skia/SkTypeface.h"
 #include "skia/SkGradientShader.h"
 #include "skia/SkBlurDrawLooper.h"
@@ -25,6 +28,8 @@
 #else
 # define USE_SOFT_CLIPPING true
 #endif
+
+GrGLInterface* CreateGrInterfaceFromGLContext(mozilla::gl::GLContext* context);
 
 namespace mozilla {
 namespace gfx {
@@ -75,11 +80,14 @@ public:
 };
 
 DrawTargetSkia::DrawTargetSkia()
+    : mGrContext(nullptr)
+    , mGLContext(nullptr)
 {
 }
 
 DrawTargetSkia::~DrawTargetSkia()
 {
+  MakeCurrent();
   if (mSnapshots.size()) {
     for (std::vector<SourceSurfaceSkia*>::iterator iter = mSnapshots.begin();
          iter != mSnapshots.end(); iter++) {
@@ -93,6 +101,8 @@ DrawTargetSkia::~DrawTargetSkia()
 TemporaryRef<SourceSurface>
 DrawTargetSkia::Snapshot()
 {
+  MakeCurrent();
+
   RefPtr<SourceSurfaceSkia> source = new SourceSurfaceSkia();
   if (!source->InitWithBitmap(mBitmap, mFormat, this)) {
     return nullptr;
@@ -248,6 +258,8 @@ struct AutoPaintSetup {
 void
 DrawTargetSkia::Flush()
 {
+  MakeCurrent();
+  mCanvas->flush();
 }
 
 void
@@ -257,6 +269,7 @@ DrawTargetSkia::DrawSurface(SourceSurface *aSurface,
                             const DrawSurfaceOptions &aSurfOptions,
                             const DrawOptions &aOptions)
 {
+  MakeCurrent();
   if (aSurface->GetType() != SURFACE_SKIA) {
     return;
   }
@@ -293,6 +306,7 @@ DrawTargetSkia::DrawSurfaceWithShadow(SourceSurface *aSurface,
                                       Float aSigma,
                                       CompositionOp aOperator)
 {
+  MakeCurrent();
   MarkChanged();
   mCanvas->save(SkCanvas::kMatrix_SaveFlag);
   mCanvas->resetMatrix();
@@ -354,6 +368,7 @@ DrawTargetSkia::FillRect(const Rect &aRect,
                          const Pattern &aPattern,
                          const DrawOptions &aOptions)
 {
+  MakeCurrent();
   MarkChanged();
   SkRect rect = RectToSkRect(aRect);
   AutoPaintSetup paint(mCanvas.get(), aOptions, aPattern);
@@ -367,6 +382,7 @@ DrawTargetSkia::Stroke(const Path *aPath,
                        const StrokeOptions &aStrokeOptions,
                        const DrawOptions &aOptions)
 {
+  MakeCurrent();
   MarkChanged();
   MOZ_ASSERT(aPath, "Null path");
   if (aPath->GetBackendType() != BACKEND_SKIA) {
@@ -390,6 +406,7 @@ DrawTargetSkia::StrokeRect(const Rect &aRect,
                            const StrokeOptions &aStrokeOptions,
                            const DrawOptions &aOptions)
 {
+  MakeCurrent();
   MarkChanged();
   AutoPaintSetup paint(mCanvas.get(), aOptions, aPattern);
   if (!StrokeOptionsToPaint(paint.mPaint, aStrokeOptions)) {
@@ -406,6 +423,7 @@ DrawTargetSkia::StrokeLine(const Point &aStart,
                            const StrokeOptions &aStrokeOptions,
                            const DrawOptions &aOptions)
 {
+  MakeCurrent();
   MarkChanged();
   AutoPaintSetup paint(mCanvas.get(), aOptions, aPattern);
   if (!StrokeOptionsToPaint(paint.mPaint, aStrokeOptions)) {
@@ -422,6 +440,7 @@ DrawTargetSkia::Fill(const Path *aPath,
                     const Pattern &aPattern,
                     const DrawOptions &aOptions)
 {
+  MakeCurrent();
   MarkChanged();
   if (aPath->GetBackendType() != BACKEND_SKIA) {
     return;
@@ -447,6 +466,7 @@ DrawTargetSkia::FillGlyphs(ScaledFont *aFont,
     return;
   }
 
+  MakeCurrent();
   MarkChanged();
 
   ScaledFontBase* skiaFont = static_cast<ScaledFontBase*>(aFont);
@@ -475,6 +495,7 @@ DrawTargetSkia::Mask(const Pattern &aSource,
                      const Pattern &aMask,
                      const DrawOptions &aOptions)
 {
+  MakeCurrent();
   MarkChanged();
   AutoPaintSetup paint(mCanvas.get(), aOptions, aSource);
 
@@ -549,6 +570,7 @@ DrawTargetSkia::CopySurface(SourceSurface *aSurface,
     return;
   }
 
+  MakeCurrent();
   MarkChanged();
   
   const SkBitmap& bitmap = static_cast<SourceSurfaceSkia*>(aSurface)->GetBitmap();
@@ -593,6 +615,37 @@ DrawTargetSkia::Init(const IntSize &aSize, SurfaceFormat aFormat)
 }
 
 void
+DrawTargetSkia::Init(gl::GLContext* aContext)
+{
+  mGLContext = aContext;
+
+  MakeCurrent();
+
+  GrGLInterface* interface = CreateGrInterfaceFromGLContext(aContext);
+  mGrContext = GrContext::Create(kOpenGL_Shaders_GrEngine, (GrPlatform3DContext)interface);
+
+  GrPlatformRenderTargetDesc targetDescriptor;
+  gfxIntSize targetSize = aContext->OffscreenSize();
+
+  targetDescriptor.fWidth = targetSize.width;
+  targetDescriptor.fHeight = targetSize.height;
+  targetDescriptor.fConfig = kRGBA_8888_GrPixelConfig;
+  targetDescriptor.fSampleCnt = 0;
+  targetDescriptor.fStencilBits = 8;
+  targetDescriptor.fRenderTargetHandle = aContext->GetOffscreenFBO();
+
+  GrRenderTarget* target = mGrContext->createPlatformRenderTarget(targetDescriptor);
+
+  SkAutoTUnref<SkDevice> device(new SkGpuDevice(mGrContext.get(), target));
+  SkAutoTUnref<SkCanvas> canvas(new SkCanvas(device.get()));
+  mSize = IntSize(targetSize.width, targetSize.height);
+
+  mDevice = device.get();
+  mCanvas = canvas.get();
+  mFormat = FORMAT_B8G8R8A8;
+}
+
+void
 DrawTargetSkia::Init(unsigned char* aData, const IntSize &aSize, int32_t aStride, SurfaceFormat aFormat)
 {
   if (aFormat == FORMAT_B8G8R8X8) {
@@ -632,6 +685,7 @@ DrawTargetSkia::CreatePathBuilder(FillRule aFillRule) const
 void
 DrawTargetSkia::ClearRect(const Rect &aRect)
 {
+  MakeCurrent();
   MarkChanged();
   SkPaint paint;
   mCanvas->save();
@@ -707,6 +761,13 @@ DrawTargetSkia::MarkChanged()
     }
     // All snapshots will now have copied data.
     mSnapshots.clear();
+  }
+}
+
+void DrawTargetSkia::MakeCurrent()
+{
+  if (mGLContext) {
+    mGLContext->MakeCurrent();
   }
 }
 
