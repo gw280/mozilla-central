@@ -5,7 +5,9 @@
 
 #pragma once
 
+#include "skia/GrContext.h"
 #include "skia/SkCanvas.h"
+#include "GLContext.h"
 #include "2D.h"
 #include "Rect.h"
 #include "PathSkia.h"
@@ -87,6 +89,7 @@ public:
 
   bool Init(const IntSize &aSize, SurfaceFormat aFormat);
   void Init(unsigned char* aData, const IntSize &aSize, int32_t aStride, SurfaceFormat aFormat);
+  void Init(gl::GLContext* aContext);
   
   operator std::string() const {
     std::stringstream stream;
@@ -98,13 +101,16 @@ private:
   void AppendSnapshot(SourceSurfaceSkia* aSnapshot);
   void RemoveSnapshot(SourceSurfaceSkia* aSnapshot);
 
+  void MakeCurrent();
   void MarkChanged();
 
+  SkRefPtr<GrContext> mGrContext;
   IntSize mSize;
   SkBitmap mBitmap;
   SkRefPtr<SkCanvas> mCanvas;
   SkRefPtr<SkDevice> mDevice;
   std::vector<SourceSurfaceSkia*> mSnapshots;
+  gl::GLContext* mGLContext;
 };
 
 }
