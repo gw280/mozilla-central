@@ -7,10 +7,13 @@
 
 #include "skia/GrContext.h"
 #include "skia/SkCanvas.h"
+#include "skia/GrContext.h"
+#include "skia/GrGLInterface.h"
 #include "GLContext.h"
 #include "2D.h"
 #include "Rect.h"
 #include "PathSkia.h"
+#include <map>
 #include <sstream>
 #include <vector>
 
@@ -89,7 +92,7 @@ public:
 
   bool Init(const IntSize &aSize, SurfaceFormat aFormat);
   void Init(unsigned char* aData, const IntSize &aSize, int32_t aStride, SurfaceFormat aFormat);
-  void Init(gl::GLContext* aContext);
+  void Init(gl::GLContext* aContext, unsigned int aTextureID, const IntSize &aSize);
   
   operator std::string() const {
     std::stringstream stream;
@@ -104,13 +107,15 @@ private:
   void MakeCurrent();
   void MarkChanged();
 
-  SkRefPtr<GrContext> mGrContext;
+  GrContext* GetGrContextForGLContext(gl::GLContext* context);
+
   IntSize mSize;
   SkBitmap mBitmap;
   SkRefPtr<SkCanvas> mCanvas;
   SkRefPtr<SkDevice> mDevice;
-  std::vector<SourceSurfaceSkia*> mSnapshots;
+  GrContext* mGrContext;
   gl::GLContext* mGLContext;
+  std::vector<SourceSurfaceSkia*> mSnapshots;
 };
 
 }

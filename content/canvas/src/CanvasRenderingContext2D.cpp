@@ -98,6 +98,9 @@
 #include "nsHTMLVideoElement.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
 
+#include "GLContext.h"
+#include "GLContextProvider.h"
+
 #ifdef XP_WIN
 #include "gfxWindowsPlatform.h"
 #endif
@@ -119,6 +122,16 @@ namespace mgfx = mozilla::gfx;
 
 namespace mozilla {
 namespace dom {
+
+static nsRefPtr<gl::GLContext> sGLContext = 0;
+
+nsRefPtr<gl::GLContext> GetGLContext() {
+  if (!sGLContext) {
+    sGLContext = mozilla::gl::GLContextProvider::CreateOffscreen(gfxIntSize(16, 16));
+  }
+  sGLContext->MakeCurrent();
+  return sGLContext;
+}
 
 static float kDefaultFontSize = 10.0;
 static NS_NAMED_LITERAL_STRING(kDefaultFontName, "sans-serif");
@@ -535,6 +548,7 @@ CanvasRenderingContext2D::CanvasRenderingContext2D()
   , mIsEntireFrameInvalid(false)
   , mPredictManyRedrawCalls(false), mPathTransformWillUpdate(false)
   , mInvalidateCount(0)
+  , mTextureID(0)
 {
   sNumLivingContexts++;
   SetIsDOMBinding();
@@ -789,7 +803,17 @@ CanvasRenderingContext2D::EnsureTarget()
     }
 
      if (layerManager) {
-       mTarget = layerManager->CreateDrawTarget(size, format);
+       if (gfxPlatform::GetPlatform()->UseAcceleratedCanvas()) {
+         GetGLContext()->fGenTextures(1, &mTextureID);
+         MOZ_ASSERT(mTextureID);
+         GetGLContext()->fBindTexture(LOCAL_GL_TEXTURE_2D, mTextureID);
+         GetGLContext()->fTexImage2D(LOCAL_GL_TEXTURE_2D, 0, LOCAL_GL_RGBA, 
+                                     size.width, size.height, 0,
+                                     LOCAL_GL_RGBA, LOCAL_GL_UNSIGNED_BYTE, nullptr);
+         mTarget = Factory::CreateDrawTargetForOpenGLTexture(GetGLContext().get(), mTextureID, size);
+       } else {
+         mTarget = layerManager->CreateDrawTarget(size, format);
+       }
      } else {
        mTarget = gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(size, format);
      }
@@ -3886,7 +3910,13 @@ CanvasRenderingContext2D::GetCanvasLayer(nsDisplayListBuilder* aBuilder,
 
   CanvasLayer::Data data;
 
-  data.mDrawTarget = mTarget;
+  if (mTextureID) {
+    data.mGLContext = GetGLContext().get();
+    data.mTextureID = mTextureID;
+  } else {
+    data.mDrawTarget = mTarget;
+  }
+
   data.mSize = nsIntSize(mWidth, mHeight);
 
   canvasLayer->Initialize(data);

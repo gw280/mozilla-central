@@ -1411,13 +1411,14 @@ public:
   struct Data {
     Data()
       : mSurface(nullptr), mGLContext(nullptr)
-      , mDrawTarget(nullptr), mGLBufferIsPremultiplied(false)
+      , mDrawTarget(nullptr), mTextureID(0), mGLBufferIsPremultiplied(false)
     { }
 
     /* One of these two must be specified, but never both */
     gfxASurface* mSurface;  // a gfx Surface for the canvas contents
     mozilla::gl::GLContext* mGLContext; // a GL PBuffer Context
     mozilla::gfx::DrawTarget *mDrawTarget; // a DrawTarget for the canvas contents
+    unsigned int mTextureID; // Texture ID on the GLContext
 
     /* The size of the canvas content */
     nsIntSize mSize;

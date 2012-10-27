@@ -6,8 +6,6 @@
 #include "DrawTargetSkia.h"
 #include "SourceSurfaceSkia.h"
 #include "ScaledFontBase.h"
-#include "skia/GrContext.h"
-#include "skia/GrGLInterface.h"
 #include "skia/SkDevice.h"
 #include "skia/SkGpuDevice.h"
 #include "skia/SkTypeface.h"
@@ -33,6 +31,8 @@ GrGLInterface* CreateGrInterfaceFromGLContext(mozilla::gl::GLContext* context);
 
 namespace mozilla {
 namespace gfx {
+
+static std::map<gl::GLContext*, GrContext*> sGrContexts;
 
 class GradientStopsSkia : public GradientStops
 {
@@ -615,30 +615,35 @@ DrawTargetSkia::Init(const IntSize &aSize, SurfaceFormat aFormat)
 }
 
 void
-DrawTargetSkia::Init(gl::GLContext* aContext)
+DrawTargetSkia::Init(gl::GLContext* aContext, unsigned int aTextureID, const IntSize &aSize)
 {
   mGLContext = aContext;
 
+  // We can only have one GrContext per GLContext
+  mGrContext = GetGrContextForGLContext(mGLContext);
+
+  if (!mGrContext) {
+    GrGLInterface* interface = CreateGrInterfaceFromGLContext(aContext);
+    mGrContext = GrContext::Create(kOpenGL_Shaders_GrEngine, (GrPlatform3DContext)interface);
+    sGrContexts[mGLContext] = mGrContext;
+  }
+
   MakeCurrent();
 
-  GrGLInterface* interface = CreateGrInterfaceFromGLContext(aContext);
-  mGrContext = GrContext::Create(kOpenGL_Shaders_GrEngine, (GrPlatform3DContext)interface);
+  GrPlatformTextureDesc targetDescriptor;
 
-  GrPlatformRenderTargetDesc targetDescriptor;
-  gfxIntSize targetSize = aContext->OffscreenSize();
-
-  targetDescriptor.fWidth = targetSize.width;
-  targetDescriptor.fHeight = targetSize.height;
+  targetDescriptor.fFlags = kRenderTarget_GrPlatformTextureFlag;
+  targetDescriptor.fWidth = aSize.width;
+  targetDescriptor.fHeight = aSize.height;
   targetDescriptor.fConfig = kRGBA_8888_GrPixelConfig;
   targetDescriptor.fSampleCnt = 0;
-  targetDescriptor.fStencilBits = 8;
-  targetDescriptor.fRenderTargetHandle = aContext->GetOffscreenFBO();
+  targetDescriptor.fTextureHandle = aTextureID;
 
-  GrRenderTarget* target = mGrContext->createPlatformRenderTarget(targetDescriptor);
+  SkAutoTUnref<GrTexture> target(mGrContext->createPlatformTexture(targetDescriptor));
 
-  SkAutoTUnref<SkDevice> device(new SkGpuDevice(mGrContext.get(), target));
+  SkAutoTUnref<SkDevice> device(new SkGpuDevice(mGrContext, target.get()));
   SkAutoTUnref<SkCanvas> canvas(new SkCanvas(device.get()));
-  mSize = IntSize(targetSize.width, targetSize.height);
+  mSize = aSize;
 
   mDevice = device.get();
   mCanvas = canvas.get();
@@ -665,6 +670,19 @@ DrawTargetSkia::Init(unsigned char* aData, const IntSize &aSize, int32_t aStride
   mCanvas = canvas.get();
   mFormat = aFormat;
 }
+
+GrContext*
+DrawTargetSkia::GetGrContextForGLContext(gl::GLContext* context)
+{
+  std::map<gl::GLContext*, GrContext*>::iterator it = sGrContexts.find(context);
+
+  if (it != sGrContexts.end()) {
+    return (*it).second;
+  }
+
+  return nullptr;
+}
+
 
 void
 DrawTargetSkia::SetTransform(const Matrix& aTransform)
