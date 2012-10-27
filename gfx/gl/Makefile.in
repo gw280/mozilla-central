@@ -117,6 +117,10 @@ ifdef MOZ_ANDROID_OMTC
 DEFINES += -DMOZ_ANDROID_OMTC
 endif
 
+ifdef MOZ_ENABLE_SKIA
+CPPSRCS += GLContextSkia.cpp
+endif
+
 include $(topsrcdir)/config/rules.mk
 
 DEFINES := $(filter-out -DUNICODE,$(DEFINES))
