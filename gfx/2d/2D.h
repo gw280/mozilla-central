@@ -31,6 +31,11 @@ struct ID3D10Texture2D;
 struct IDWriteRenderingParams;
 
 namespace mozilla {
+
+namespace gl {
+class GLContext;
+}
+
 namespace gfx {
 
 class SourceSurface;
@@ -910,6 +915,13 @@ public:
     CreateEventRecorderForFile(const char *aFilename);
 
   static void SetGlobalEventRecorder(DrawEventRecorder *aRecorder);
+
+  /* This takes a GLContext which has an associated offscreen FBO, and
+   * creates a DrawTarget which will draw into that FBO using a backend
+   * that supports FBO targets (currently only Skia/Ganesh)
+   */
+  static TemporaryRef<DrawTarget>
+    CreateDrawTargetForOpenGLLayer(gl::GLContext *aContext);
 
 #ifdef WIN32
   static TemporaryRef<DrawTarget> CreateDrawTargetForD3D10Texture(ID3D10Texture2D *aTexture, SurfaceFormat aFormat);
