@@ -45,7 +45,7 @@ VPATH += \
 	$(srcdir)/src/gpu \
 	$(srcdir)/src/gpu/effects \
 	$(srcdir)/src/gpu/gl \
-	$(srcdir)/src/gpu/gl/unix \
+	$(srcdir)/src/gpu/gl/mozilla \
 	$(srcdir)/src/image \
 	$(srcdir)/src/images \
 	$(srcdir)/src/pipe \
@@ -259,6 +259,7 @@ GPU_CPPSRCS = \
 GPU_GL_CPPSRCS = \
 	GrGLCaps.cpp \
 	GrGLContextInfo.cpp \
+	GrGLCreateNativeInterface_mozilla.cpp \
 	GrGLCreateNullInterface.cpp \
 	GrGLDefaultInterface_native.cpp \
 	GrGLIndexBuffer.cpp \
@@ -478,8 +479,6 @@ CPPSRCS += \
 	SkTime_Unix.cpp \
 	SkMMapStream.cpp \
 	SkOSFile.cpp \
-	GrGLCreateNativeInterface_unix.cpp \
-	SkNativeGLContext_unix.cpp \
 	$(NULL)
 
 EXPORTS_skia += \
