@@ -98,6 +98,9 @@
 #include "nsHTMLVideoElement.h"
 #include "mozilla/dom/CanvasRenderingContext2DBinding.h"
 
+#include "GLContext.h"
+#include "GLContextProvider.h"
+
 #ifdef XP_WIN
 #include "gfxWindowsPlatform.h"
 #endif
@@ -559,6 +562,7 @@ CanvasRenderingContext2D::CanvasRenderingContext2D()
   , mIsEntireFrameInvalid(false)
   , mPredictManyRedrawCalls(false), mPathTransformWillUpdate(false)
   , mInvalidateCount(0)
+  , mGLContext(nullptr)
 {
   sNumLivingContexts++;
   SetIsDOMBinding();
@@ -834,7 +838,14 @@ CanvasRenderingContext2D::EnsureTarget()
     }
 
      if (layerManager) {
-       mTarget = layerManager->CreateDrawTarget(size, format);
+       if (gfxPlatform::GetPlatform()->UseAcceleratedCanvas()) {
+         mGLContext =
+           mozilla::gl::GLContextProvider::CreateOffscreen(gfxIntSize(mWidth, mHeight));
+         mGLContext->AddRef();
+         mTarget = Factory::CreateDrawTargetForOpenGLLayer(mGLContext);
+       } else {
+         mTarget = layerManager->CreateDrawTarget(size, format);
+       }
      } else {
        mTarget = gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(size, format);
      }
@@ -4753,7 +4764,12 @@ CanvasRenderingContext2D::GetCanvasLayer(nsDisplayListBuilder* aBuilder,
 
   CanvasLayer::Data data;
 
-  data.mDrawTarget = mTarget;
+  if (mGLContext) {
+    data.mGLContext = mGLContext;
+  } else {
+    data.mDrawTarget = mTarget;
+  }
+
   data.mSize = nsIntSize(mWidth, mHeight);
 
   canvasLayer->Initialize(data);

@@ -12,6 +12,7 @@
 
 #ifdef USE_SKIA
 #include "DrawTargetSkia.h"
+#include "GLContext.h"
 #include "ScaledFontBase.h"
 #ifdef MOZ_ENABLE_FREETYPE
 #define USE_SKIA_FREETYPE
@@ -433,6 +434,16 @@ Factory::GetD2DVRAMUsageSourceSurface()
 }
 
 #endif // XP_WIN
+
+#ifdef USE_SKIA
+TemporaryRef<DrawTarget>
+Factory::CreateDrawTargetForOpenGLLayer(gl::GLContext *aContext)
+{
+  RefPtr<DrawTargetSkia> newTarget = new DrawTargetSkia();
+  newTarget->Init(aContext);
+  return newTarget;
+}
+#endif // USE_SKIA
 
 TemporaryRef<DrawTarget>
 Factory::CreateDrawTargetForCairoSurface(cairo_surface_t* aSurface, const IntSize& aSize)
