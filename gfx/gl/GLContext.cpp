@@ -106,6 +106,7 @@ GLContext::InitWithPrefix(const char *prefix, bool trygl)
     SymLoadStruct symbols[] = {
         { (PRFuncPtr*) &mSymbols.fActiveTexture, { "ActiveTexture", "ActiveTextureARB", NULL } },
         { (PRFuncPtr*) &mSymbols.fAttachShader, { "AttachShader", "AttachShaderARB", NULL } },
+        { (PRFuncPtr*) &mSymbols.fBeginQuery, { "BeginQuery", NULL } },
         { (PRFuncPtr*) &mSymbols.fBindAttribLocation, { "BindAttribLocation", "BindAttribLocationARB", NULL } },
         { (PRFuncPtr*) &mSymbols.fBindBuffer, { "BindBuffer", "BindBufferARB", NULL } },
         { (PRFuncPtr*) &mSymbols.fBindTexture, { "BindTexture", "BindTextureARB", NULL } },
@@ -129,9 +130,12 @@ GLContext::InitWithPrefix(const char *prefix, bool trygl)
         { (PRFuncPtr*) &mSymbols.fDisable, { "Disable", NULL } },
         { (PRFuncPtr*) &mSymbols.fDisableVertexAttribArray, { "DisableVertexAttribArray", "DisableVertexAttribArrayARB", NULL } },
         { (PRFuncPtr*) &mSymbols.fDrawArrays, { "DrawArrays", NULL } },
+        { (PRFuncPtr*) &mSymbols.fDrawBuffer, { "DrawBuffer", NULL } },
+        { (PRFuncPtr*) &mSymbols.fDrawBuffers, { "DrawBuffers", NULL } },
         { (PRFuncPtr*) &mSymbols.fDrawElements, { "DrawElements", NULL } },
         { (PRFuncPtr*) &mSymbols.fEnable, { "Enable", NULL } },
         { (PRFuncPtr*) &mSymbols.fEnableVertexAttribArray, { "EnableVertexAttribArray", "EnableVertexAttribArrayARB", NULL } },
+        { (PRFuncPtr*) &mSymbols.fEndQuery, { "EndQuery", NULL } },
         { (PRFuncPtr*) &mSymbols.fFinish, { "Finish", NULL } },
         { (PRFuncPtr*) &mSymbols.fFlush, { "Flush", NULL } },
         { (PRFuncPtr*) &mSymbols.fFrontFace, { "FrontFace", NULL } },
@@ -147,7 +151,11 @@ GLContext::InitWithPrefix(const char *prefix, bool trygl)
         { (PRFuncPtr*) &mSymbols.fGetProgramiv, { "GetProgramiv", "GetProgramivARB", NULL } },
         { (PRFuncPtr*) &mSymbols.fGetProgramInfoLog, { "GetProgramInfoLog", "GetProgramInfoLogARB", NULL } },
         { (PRFuncPtr*) &mSymbols.fTexParameteri, { "TexParameteri", NULL } },
+        { (PRFuncPtr*) &mSymbols.fTexParameteriv, { "TexParameteriv", NULL } },
         { (PRFuncPtr*) &mSymbols.fTexParameterf, { "TexParameterf", NULL } },
+        { (PRFuncPtr*) &mSymbols.fGetQueryiv, { "GetQueryiv", NULL } },
+        { (PRFuncPtr*) &mSymbols.fGetQueryObjectiv, { "GetQueryObjectiv", NULL } },
+        { (PRFuncPtr*) &mSymbols.fGetQueryObjectuiv, { "GetQueryObjectuiv", NULL } },
         { (PRFuncPtr*) &mSymbols.fGetString, { "GetString", NULL } },
         { (PRFuncPtr*) &mSymbols.fGetTexParameterfv, { "GetTexParameterfv", NULL } },
         { (PRFuncPtr*) &mSymbols.fGetTexParameteriv, { "GetTexParameteriv", NULL } },
@@ -230,6 +238,7 @@ GLContext::InitWithPrefix(const char *prefix, bool trygl)
         { (PRFuncPtr*) &mSymbols.fRenderbufferStorage, { "RenderbufferStorage", "RenderbufferStorageEXT", NULL } },
 
         { (PRFuncPtr*) &mSymbols.fGenBuffers, { "GenBuffers", "GenBuffersARB", NULL } },
+        { (PRFuncPtr*) &mSymbols.fGenQueries, { "GenQueries", NULL } },
         { (PRFuncPtr*) &mSymbols.fGenTextures, { "GenTextures", NULL } },
         { (PRFuncPtr*) &mSymbols.fCreateProgram, { "CreateProgram", "CreateProgramARB", NULL } },
         { (PRFuncPtr*) &mSymbols.fCreateShader, { "CreateShader", "CreateShaderARB", NULL } },
@@ -237,6 +246,7 @@ GLContext::InitWithPrefix(const char *prefix, bool trygl)
         { (PRFuncPtr*) &mSymbols.fGenRenderbuffers, { "GenRenderbuffers", "GenRenderbuffersEXT", NULL } },
 
         { (PRFuncPtr*) &mSymbols.fDeleteBuffers, { "DeleteBuffers", "DeleteBuffersARB", NULL } },
+        { (PRFuncPtr*) &mSymbols.fDeleteQueries, { "DeleteQueries", NULL } },
         { (PRFuncPtr*) &mSymbols.fDeleteTextures, { "DeleteTextures", "DeleteTexturesARB", NULL } },
         { (PRFuncPtr*) &mSymbols.fDeleteProgram, { "DeleteProgram", "DeleteProgramARB", NULL } },
         { (PRFuncPtr*) &mSymbols.fDeleteShader, { "DeleteShader", "DeleteShaderARB", NULL } },
@@ -2993,6 +3003,14 @@ GLContext::CreatedBuffers(GLContext *aOrigin, GLsizei aCount, GLuint *aNames)
 }
 
 void
+GLContext::CreatedQueries(GLContext *aOrigin, GLsizei aCount, GLuint *aNames)
+{
+    for (GLsizei i = 0; i < aCount; ++i) {
+        mTrackedQueries.AppendElement(NamedResource(aOrigin, aNames[i]));
+    }
+}
+
+void
 GLContext::CreatedTextures(GLContext *aOrigin, GLsizei aCount, GLuint *aNames)
 {
     for (GLsizei i = 0; i < aCount; ++i) {
@@ -3053,6 +3071,12 @@ GLContext::DeletedBuffers(GLContext *aOrigin, GLsizei aCount, GLuint *aNames)
 }
 
 void
+GLContext::DeletedQueries(GLContext *aOrigin, GLsizei aCount, GLuint *aNames)
+{
+    RemoveNamesFromArray(aOrigin, aCount, aNames, mTrackedQueries);
+}
+
+void
 GLContext::DeletedTextures(GLContext *aOrigin, GLsizei aCount, GLuint *aNames)
 {
     RemoveNamesFromArray(aOrigin, aCount, aNames, mTrackedTextures);
@@ -3088,6 +3112,7 @@ GLContext::SharedContextDestroyed(GLContext *aChild)
     MarkContextDestroyedInArray(aChild, mTrackedFramebuffers);
     MarkContextDestroyedInArray(aChild, mTrackedRenderbuffers);
     MarkContextDestroyedInArray(aChild, mTrackedBuffers);
+    MarkContextDestroyedInArray(aChild, mTrackedQueries);
 }
 
 static void
@@ -3124,6 +3149,7 @@ GLContext::ReportOutstandingNames()
 
     ReportArrayContents("Outstanding Textures", mTrackedTextures);
     ReportArrayContents("Outstanding Buffers", mTrackedBuffers);
+    ReportArrayContents("Outstanding Queries", mTrackedQueries);
     ReportArrayContents("Outstanding Programs", mTrackedPrograms);
     ReportArrayContents("Outstanding Shaders", mTrackedShaders);
     ReportArrayContents("Outstanding Framebuffers", mTrackedFramebuffers);
