@@ -2222,6 +2222,12 @@ public:
         AFTER_GL_CALL;
     }
 
+    void fBeginQuery(GLenum target, GLuint id) {
+        BEFORE_GL_CALL;
+        mSymbols.fBeginQuery(target, id);
+        AFTER_GL_CALL;
+    }
+
     void fBindAttribLocation(GLuint program, GLuint index, const GLchar* name) {
         BEFORE_GL_CALL;
         mSymbols.fBindAttribLocation(program, index, name);
@@ -2370,6 +2376,18 @@ public:
         AFTER_GL_CALL;
     }
 
+    void fDrawBuffer(GLenum mode) {
+        BEFORE_GL_CALL;
+        mSymbols.fDrawBuffer(mode);
+        AFTER_GL_CALL;
+    }
+
+    void fDrawBuffers(GLsizei n, GLenum* bufs) {
+        BEFORE_GL_CALL;
+        mSymbols.fDrawBuffers(n, bufs);
+        AFTER_GL_CALL;
+    }
+
     void raw_fDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices) {
         BEFORE_GL_CALL;
         mSymbols.fDrawElements(mode, count, type, indices);
@@ -2385,6 +2403,12 @@ public:
     void fEnableVertexAttribArray(GLuint index) {
         BEFORE_GL_CALL;
         mSymbols.fEnableVertexAttribArray(index);
+        AFTER_GL_CALL;
+    }
+
+    void fEndQuery(GLenum target) {
+        BEFORE_GL_CALL;
+        mSymbols.fEndQuery(target);
         AFTER_GL_CALL;
     }
 
@@ -2429,6 +2453,24 @@ public:
         GLint retval = mSymbols.fGetAttribLocation(program, name);
         AFTER_GL_CALL;
         return retval;
+    }
+
+    void fGetQueryiv(GLenum target, GLenum pname, GLint* params) {
+        BEFORE_GL_CALL;
+        mSymbols.fGetQueryiv(target, pname, params);
+        AFTER_GL_CALL;
+    }
+
+    void fGetQueryObjectiv(GLuint id, GLenum pname, GLint* params) {
+        BEFORE_GL_CALL;
+        mSymbols.fGetQueryObjectiv(id, pname, params);
+        AFTER_GL_CALL;
+    }
+
+    void fGetQueryObjectuiv(GLuint id, GLenum pname, GLuint* params) {
+        BEFORE_GL_CALL;
+        mSymbols.fGetQueryObjectuiv(id, pname, params);
+        AFTER_GL_CALL;
     }
 
 private:
@@ -2482,6 +2524,12 @@ public:
     void fTexParameteri(GLenum target, GLenum pname, GLint param) {
         BEFORE_GL_CALL;
         mSymbols.fTexParameteri(target, pname, param);
+        AFTER_GL_CALL;
+    }
+
+    void fTexParameteriv(GLenum target, GLenum pname, GLint* params) {
+        BEFORE_GL_CALL;
+        mSymbols.fTexParameteriv(target, pname, params);
         AFTER_GL_CALL;
     }
 
@@ -3105,6 +3153,13 @@ public:
          TRACKING_CONTEXT(CreatedBuffers(this, n, names));
      }
 
+     void GLAPIENTRY fGenQueries(GLsizei n, GLuint* names) {
+         BEFORE_GL_CALL;
+         mSymbols.fGenQueries(n, names);
+         AFTER_GL_CALL;
+         TRACKING_CONTEXT(CreatedQueries(this, n, names));
+     }
+
      void GLAPIENTRY fGenTextures(GLsizei n, GLuint* names) {
          BEFORE_GL_CALL;
          mSymbols.fGenTextures(n, names);
@@ -3145,6 +3200,13 @@ public:
          mSymbols.fDeleteBuffers(n, names);
          AFTER_GL_CALL;
          TRACKING_CONTEXT(DeletedBuffers(this, n, names));
+     }
+
+     void GLAPIENTRY fDeleteQueries(GLsizei n, GLuint* names) {
+         BEFORE_GL_CALL;
+         mSymbols.fDeleteQueries(n, names);
+         AFTER_GL_CALL;
+         TRACKING_CONTEXT(DeletedQueries(this, n, names));
      }
 
      void GLAPIENTRY fDeleteTextures(GLsizei n, GLuint *names) {
@@ -3236,12 +3298,14 @@ public:
     void THEBES_API CreatedProgram(GLContext *aOrigin, GLuint aName);
     void THEBES_API CreatedShader(GLContext *aOrigin, GLuint aName);
     void THEBES_API CreatedBuffers(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
+    void THEBES_API CreatedQueries(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
     void THEBES_API CreatedTextures(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
     void THEBES_API CreatedFramebuffers(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
     void THEBES_API CreatedRenderbuffers(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
     void THEBES_API DeletedProgram(GLContext *aOrigin, GLuint aName);
     void THEBES_API DeletedShader(GLContext *aOrigin, GLuint aName);
     void THEBES_API DeletedBuffers(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
+    void THEBES_API DeletedQueries(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
     void THEBES_API DeletedTextures(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
     void THEBES_API DeletedFramebuffers(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
     void THEBES_API DeletedRenderbuffers(GLContext *aOrigin, GLsizei aCount, GLuint *aNames);
@@ -3283,6 +3347,7 @@ public:
     nsTArray<NamedResource> mTrackedFramebuffers;
     nsTArray<NamedResource> mTrackedRenderbuffers;
     nsTArray<NamedResource> mTrackedBuffers;
+    nsTArray<NamedResource> mTrackedQueries;
 #endif
 
 };
