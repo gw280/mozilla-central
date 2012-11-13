@@ -23,6 +23,8 @@
 #include "Tools.h"
 #include <algorithm>
 
+#include "sampler.h"
+
 #ifdef ANDROID
 # define USE_SOFT_CLIPPING false
 #else
@@ -101,6 +103,7 @@ DrawTargetSkia::~DrawTargetSkia()
 TemporaryRef<SourceSurface>
 DrawTargetSkia::Snapshot()
 {
+  SAMPLE_LABEL("DrawTargetSkia", "Snapshot");
   MakeCurrent();
 
   RefPtr<SourceSurfaceSkia> source = new SourceSurfaceSkia();
@@ -269,6 +272,7 @@ DrawTargetSkia::DrawSurface(SourceSurface *aSurface,
                             const DrawSurfaceOptions &aSurfOptions,
                             const DrawOptions &aOptions)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "DrawSurface");
   MakeCurrent();
   if (aSurface->GetType() != SURFACE_SKIA) {
     return;
@@ -306,6 +310,7 @@ DrawTargetSkia::DrawSurfaceWithShadow(SourceSurface *aSurface,
                                       Float aSigma,
                                       CompositionOp aOperator)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "DrawSurfaceWithShadow");
   MakeCurrent();
   MarkChanged();
   mCanvas->save(SkCanvas::kMatrix_SaveFlag);
@@ -368,6 +373,7 @@ DrawTargetSkia::FillRect(const Rect &aRect,
                          const Pattern &aPattern,
                          const DrawOptions &aOptions)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "FillRect");
   MakeCurrent();
   MarkChanged();
   SkRect rect = RectToSkRect(aRect);
@@ -382,6 +388,7 @@ DrawTargetSkia::Stroke(const Path *aPath,
                        const StrokeOptions &aStrokeOptions,
                        const DrawOptions &aOptions)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "Stroke");
   MakeCurrent();
   MarkChanged();
   MOZ_ASSERT(aPath, "Null path");
@@ -406,6 +413,7 @@ DrawTargetSkia::StrokeRect(const Rect &aRect,
                            const StrokeOptions &aStrokeOptions,
                            const DrawOptions &aOptions)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "StrokeRect");
   MakeCurrent();
   MarkChanged();
   AutoPaintSetup paint(mCanvas.get(), aOptions, aPattern);
@@ -423,6 +431,7 @@ DrawTargetSkia::StrokeLine(const Point &aStart,
                            const StrokeOptions &aStrokeOptions,
                            const DrawOptions &aOptions)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "StrokeLine");
   MakeCurrent();
   MarkChanged();
   AutoPaintSetup paint(mCanvas.get(), aOptions, aPattern);
@@ -440,6 +449,7 @@ DrawTargetSkia::Fill(const Path *aPath,
                     const Pattern &aPattern,
                     const DrawOptions &aOptions)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "Fill");
   MakeCurrent();
   MarkChanged();
   if (aPath->GetBackendType() != BACKEND_SKIA) {
@@ -460,6 +470,7 @@ DrawTargetSkia::FillGlyphs(ScaledFont *aFont,
                            const DrawOptions &aOptions,
                            const GlyphRenderingOptions*)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "FillGlyphs");
   if (aFont->GetType() != FONT_MAC &&
       aFont->GetType() != FONT_SKIA &&
       aFont->GetType() != FONT_GDI) {
@@ -495,6 +506,7 @@ DrawTargetSkia::Mask(const Pattern &aSource,
                      const Pattern &aMask,
                      const DrawOptions &aOptions)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "Mask");
   MakeCurrent();
   MarkChanged();
   AutoPaintSetup paint(mCanvas.get(), aOptions, aSource);
@@ -527,6 +539,7 @@ DrawTargetSkia::CreateSourceSurfaceFromData(unsigned char *aData,
                                              int32_t aStride,
                                              SurfaceFormat aFormat) const
 {
+  SAMPLE_LABEL("DrawTargetSkia", "CreateSourceSurfaceFromData");
   RefPtr<SourceSurfaceSkia> newSurf = new SourceSurfaceSkia();
 
   if (!newSurf->InitFromData(aData, aSize, aStride, aFormat)) {
@@ -564,6 +577,7 @@ DrawTargetSkia::CopySurface(SourceSurface *aSurface,
                             const IntRect& aSourceRect,
                             const IntPoint &aDestination)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "CopySurface");
   //TODO: We could just use writePixels() here if the sourceRect is the entire source
   
     if (aSurface->GetType() != SURFACE_SKIA) {
@@ -617,6 +631,7 @@ DrawTargetSkia::Init(const IntSize &aSize, SurfaceFormat aFormat)
 void
 DrawTargetSkia::Init(gl::GLContext* aContext)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "Init");
   mGLContext = aContext;
 
   MakeCurrent();
@@ -669,6 +684,7 @@ DrawTargetSkia::Init(unsigned char* aData, const IntSize &aSize, int32_t aStride
 void
 DrawTargetSkia::SetTransform(const Matrix& aTransform)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "SetTransform");
   SkMatrix mat;
   GfxMatrixToSkiaMatrix(aTransform, mat);
   mCanvas->setMatrix(mat);
@@ -685,6 +701,7 @@ DrawTargetSkia::CreatePathBuilder(FillRule aFillRule) const
 void
 DrawTargetSkia::ClearRect(const Rect &aRect)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "ClearRect");
   MakeCurrent();
   MarkChanged();
   SkPaint paint;
@@ -699,6 +716,7 @@ DrawTargetSkia::ClearRect(const Rect &aRect)
 void
 DrawTargetSkia::PushClip(const Path *aPath)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "PushClip");
   if (aPath->GetBackendType() != BACKEND_SKIA) {
     return;
   }
@@ -711,6 +729,7 @@ DrawTargetSkia::PushClip(const Path *aPath)
 void
 DrawTargetSkia::PushClipRect(const Rect& aRect)
 {
+  SAMPLE_LABEL("DrawTargetSkia", "PushClipRect");
   SkRect rect = RectToSkRect(aRect);
 
   mCanvas->save(SkCanvas::kClip_SaveFlag);
@@ -720,6 +739,7 @@ DrawTargetSkia::PushClipRect(const Rect& aRect)
 void
 DrawTargetSkia::PopClip()
 {
+  SAMPLE_LABEL("DrawTargetSkia", "PopClip");
   mCanvas->restore();
 }
 
@@ -766,6 +786,7 @@ DrawTargetSkia::MarkChanged()
 
 void DrawTargetSkia::MakeCurrent()
 {
+  SAMPLE_LABEL("DrawTargetSkia", "MakeCurrent");
   if (mGLContext) {
     mGLContext->MakeCurrent();
   }
