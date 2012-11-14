@@ -715,7 +715,7 @@ protected:
   // sErrorTarget.
   mozilla::RefPtr<mozilla::gfx::DrawTarget> mTarget;
 
-  nsRefPtr<mozilla::gl::GLContext> mGLContext;
+  GLuint mTextureID;
 
   /**
     * Flag to avoid duplicate calls to InvalidateFrame. Set to true whenever

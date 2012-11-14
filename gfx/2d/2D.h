@@ -921,7 +921,7 @@ public:
    * that supports FBO targets (currently only Skia/Ganesh)
    */
   static TemporaryRef<DrawTarget>
-    CreateDrawTargetForOpenGLLayer(gl::GLContext *aContext);
+    CreateDrawTargetForOpenGLTexture(gl::GLContext *aContext, unsigned int aTextureID, const IntSize &aSize);
 
 #ifdef WIN32
   static TemporaryRef<DrawTarget> CreateDrawTargetForD3D10Texture(ID3D10Texture2D *aTexture, SurfaceFormat aFormat);

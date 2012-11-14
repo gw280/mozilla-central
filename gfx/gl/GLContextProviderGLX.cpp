@@ -36,6 +36,8 @@
 #include "gfxPlatformGtk.h"
 #endif
 
+#include "sampler.h"
+
 namespace mozilla {
 namespace gl {
 
@@ -512,6 +514,7 @@ GLXLibrary::xMakeCurrent(Display* display,
                          GLXDrawable drawable, 
                          GLXContext context)
 {
+    SAMPLE_LABEL("GLContextProviderGLX", "xMakeCurrent");
     BEFORE_GLX_CALL;
     Bool result = xMakeCurrentInternal(display, drawable, context);
     AFTER_GLX_CALL;
@@ -521,6 +524,7 @@ GLXLibrary::xMakeCurrent(Display* display,
 GLXContext 
 GLXLibrary::xGetCurrentContext()
 {
+    SAMPLE_LABEL("GLContextProviderGLX", "xGetCurrentContext");
     BEFORE_GLX_CALL;
     GLXContext result = xGetCurrentContextInternal();
     AFTER_GLX_CALL;
@@ -849,6 +853,7 @@ TRY_AGAIN_NO_SHARING:
 
     bool MakeCurrentImpl(bool aForce = false)
     {
+        SAMPLE_LABEL("GLContextProviderGLX", "MakeCurrentImpl");
         bool succeeded = true;
 
         // With the ATI FGLRX driver, glxMakeCurrent is very slow even when the context doesn't change.

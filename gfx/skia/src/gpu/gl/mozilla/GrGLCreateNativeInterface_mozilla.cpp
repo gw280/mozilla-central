@@ -295,9 +295,9 @@ const GLubyte* glGetString_mozilla(GrGLenum name)
         // For now, let's just pretend we don't support any extensions except BGRA which
         // is required by Ganesh to function properly
         if (sGLContext->IsExtensionSupported(GLContext::EXT_texture_format_BGRA8888)) {
-            return reinterpret_cast<const GLubyte*>("GL_EXT_texture_format_BGRA8888");
+            return reinterpret_cast<const GLubyte*>("GL_EXT_texture_format_BGRA8888, GL_EXT_packed_depth_stencil");
         } else {
-            return reinterpret_cast<const GLubyte*>("");
+            return reinterpret_cast<const GLubyte*>("GL_EXT_packed_depth_stencil");
         }
     } else if (name == GR_GL_SHADING_LANGUAGE_VERSION) {
         if (sGLContext->IsGLES2()) {

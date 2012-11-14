@@ -437,10 +437,10 @@ Factory::GetD2DVRAMUsageSourceSurface()
 
 #ifdef USE_SKIA
 TemporaryRef<DrawTarget>
-Factory::CreateDrawTargetForOpenGLLayer(gl::GLContext *aContext)
+Factory::CreateDrawTargetForOpenGLTexture(gl::GLContext *aContext, unsigned int aTextureID, const IntSize &aSize)
 {
   RefPtr<DrawTargetSkia> newTarget = new DrawTargetSkia();
-  newTarget->Init(aContext);
+  newTarget->Init(aContext, aTextureID, aSize);
   return newTarget;
 }
 #endif // USE_SKIA

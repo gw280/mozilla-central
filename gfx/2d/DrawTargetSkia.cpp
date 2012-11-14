@@ -629,7 +629,7 @@ DrawTargetSkia::Init(const IntSize &aSize, SurfaceFormat aFormat)
 }
 
 void
-DrawTargetSkia::Init(gl::GLContext* aContext)
+DrawTargetSkia::Init(gl::GLContext* aContext, unsigned int aTextureID, const IntSize &aSize)
 {
   SAMPLE_LABEL("DrawTargetSkia", "Init");
   mGLContext = aContext;
@@ -639,21 +639,20 @@ DrawTargetSkia::Init(gl::GLContext* aContext)
   GrGLInterface* interface = CreateGrInterfaceFromGLContext(aContext);
   mGrContext = GrContext::Create(kOpenGL_Shaders_GrEngine, (GrPlatform3DContext)interface);
 
-  GrPlatformRenderTargetDesc targetDescriptor;
-  gfxIntSize targetSize = aContext->OffscreenSize();
+  GrPlatformTextureDesc targetDescriptor;
 
-  targetDescriptor.fWidth = targetSize.width;
-  targetDescriptor.fHeight = targetSize.height;
+  targetDescriptor.fFlags = kRenderTarget_GrPlatformTextureFlag;
+  targetDescriptor.fWidth = aSize.width;
+  targetDescriptor.fHeight = aSize.height;
   targetDescriptor.fConfig = kRGBA_8888_GrPixelConfig;
   targetDescriptor.fSampleCnt = 0;
-  targetDescriptor.fStencilBits = 8;
-  targetDescriptor.fRenderTargetHandle = aContext->GetOffscreenFBO();
+  targetDescriptor.fTextureHandle = aTextureID;
 
-  GrRenderTarget* target = mGrContext->createPlatformRenderTarget(targetDescriptor);
+  GrTexture* target = mGrContext->createPlatformTexture(targetDescriptor);
 
   SkAutoTUnref<SkDevice> device(new SkGpuDevice(mGrContext.get(), target));
   SkAutoTUnref<SkCanvas> canvas(new SkCanvas(device.get()));
-  mSize = IntSize(targetSize.width, targetSize.height);
+  mSize = aSize;
 
   mDevice = device.get();
   mCanvas = canvas.get();

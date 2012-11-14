@@ -89,7 +89,7 @@ public:
 
   bool Init(const IntSize &aSize, SurfaceFormat aFormat);
   void Init(unsigned char* aData, const IntSize &aSize, int32_t aStride, SurfaceFormat aFormat);
-  void Init(gl::GLContext* aContext);
+  void Init(gl::GLContext* aContext, unsigned int aTextureID, const IntSize &aSize);
   
   operator std::string() const {
     std::stringstream stream;

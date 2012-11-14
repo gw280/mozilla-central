@@ -27,7 +27,7 @@
 #define LOGF(format, ...) printf("Profiler: " format "\n", __VA_ARGS__)
 #endif
 
-#if defined(XP_MACOSX) || defined(XP_WIN)
+#if 1
 #define ENABLE_SPS_LEAF_DATA
 #endif
 
