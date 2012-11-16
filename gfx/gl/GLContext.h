@@ -2979,6 +2979,20 @@ public:
     }
 
     void fDeleteFramebuffers(GLsizei n, GLuint *names) {
+        if (mIsOffscreen) {
+          for (int i = 0; i < n; i++) {
+              GLuint cur = names[i];
+
+              if (!cur)
+                  continue;
+
+              if (cur == GetUserBoundDrawFBO())
+                  BindUserDrawFBO(0);
+              if (cur == GetUserBoundReadFBO())
+                  BindUserReadFBO(0);
+            }
+        }
+
         if (n == 1 && *names == 0) {
             // Deleting framebuffer 0 causes hangs on the DROID. See bug 623228.
         } else {
