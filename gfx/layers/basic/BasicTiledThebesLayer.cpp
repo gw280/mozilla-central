@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "nscore.h"
+#include "mozilla/gfx/2D.h"
 #include "mozilla/layers/PLayersChild.h"
 #include "BasicTiledThebesLayer.h"
 #include "gfxImageSurface.h"
@@ -104,16 +106,30 @@ BasicTiledLayerBuffer::PaintThebes(BasicTiledThebesLayer* aLayer,
   }
 
   if (useSinglePaintBuffer) {
+    nsRefPtr<gfxContext> ctxt;
     const nsIntRect bounds = aPaintRegion.GetBounds();
     {
       SAMPLE_LABEL("BasicTiledLayerBuffer", "PaintThebesSingleBufferAlloc");
-      mSinglePaintBuffer = new gfxImageSurface(
-        gfxIntSize(ceilf(bounds.width * mResolution),
-                   ceilf(bounds.height * mResolution)),
-        GetFormat(), !aLayer->CanUseOpaqueSurface());
+
+      if (gfxPlatform::GetPlatform()->SupportsAzureContent()) {
+        mSinglePaintDrawTarget =
+          gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(gfx::IntSize(ceilf(bounds.width * mResolution), 
+                                                                             ceilf(bounds.height * mResolution)),
+                                                                gfx::SurfaceFormatForImageFormat(GetFormat()));
+
+        ctxt = new gfxContext(mSinglePaintDrawTarget);
+      } else {
+        mSinglePaintBuffer = new gfxImageSurface(
+          gfxIntSize(ceilf(bounds.width * mResolution),
+                     ceilf(bounds.height * mResolution)),
+          GetFormat(), !aLayer->CanUseOpaqueSurface());
+
+        ctxt = new gfxContext(mSinglePaintBuffer);
+      }
+
       mSinglePaintBufferOffset = nsIntPoint(bounds.x, bounds.y);
     }
-    nsRefPtr<gfxContext> ctxt = new gfxContext(mSinglePaintBuffer);
+
     ctxt->NewPath();
     ctxt->Scale(mResolution, mResolution);
     ctxt->Translate(gfxPoint(-bounds.x, -bounds.y));
@@ -158,6 +174,7 @@ BasicTiledLayerBuffer::PaintThebes(BasicTiledThebesLayer* aLayer,
   mCallback = nullptr;
   mCallbackData = nullptr;
   mSinglePaintBuffer = nullptr;
+  mSinglePaintDrawTarget = nullptr;
 }
 
 BasicTiledLayerTile
@@ -178,7 +195,25 @@ BasicTiledLayerBuffer::ValidateTileInternal(BasicTiledLayerTile aTile,
   aTile.mSurface = aTile.mSurface->GetWritable(&writableSurface);
 
   // Bug 742100, this gfxContext really should live on the stack.
-  nsRefPtr<gfxContext> ctxt = new gfxContext(writableSurface);
+  nsRefPtr<gfxContext> ctxt;
+
+  RefPtr<gfx::DrawTarget> writableDrawTarget;
+  if (gfxPlatform::GetPlatform()->SupportsAzureContent()) {
+    // TODO: Instead of creating a gfxImageSurface to back the tile we should
+    // create an offscreen DrawTarget. This would need to be shared cross-thread
+    // and support copy on write semantics.
+    gfx::SurfaceFormat format = gfx::SurfaceFormatForImageFormat(writableSurface->Format());
+
+    writableDrawTarget =
+        gfxPlatform::GetPlatform()->CreateDrawTargetForData(writableSurface->Data(),
+                                                            gfx::IntSize(writableSurface->Width(),
+                                                                         writableSurface->Height()),
+                                                            writableSurface->Stride(),
+                                                            format);
+    ctxt = new gfxContext(writableDrawTarget);
+  } else {
+    ctxt = new gfxContext(writableSurface);
+  }
 
   if (mSinglePaintBuffer) {
     gfxRect drawRect(aDirtyRect.x - aTileOrigin.x, aDirtyRect.y - aTileOrigin.y,
