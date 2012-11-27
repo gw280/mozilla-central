@@ -29,6 +29,7 @@ XPIDLSRCS	= \
 
 EXPORTS_mozilla = \
               Preferences.h \
+              PrefContainer.h \
               $(NULL)
 
 include $(topsrcdir)/config/rules.mk
