@@ -215,7 +215,7 @@ public:
       CreateOffscreenDrawTarget(const mozilla::gfx::IntSize& aSize, mozilla::gfx::SurfaceFormat aFormat);
 
     virtual mozilla::RefPtr<mozilla::gfx::DrawTarget>
-      CreateDrawTargetForData(unsigned char* aData, const mozilla::gfx::IntSize& aSize, 
+      CreateDrawTargetForData(unsigned char* aData, const mozilla::gfx::IntSize& aSize,
                               int32_t aStride, mozilla::gfx::SurfaceFormat aFormat);
 
     bool SupportsAzureContent() {
@@ -287,8 +287,8 @@ public:
     virtual gfxFontGroup *CreateFontGroup(const nsAString& aFamilies,
                                           const gfxFontStyle *aStyle,
                                           gfxUserFontSet *aUserFontSet) = 0;
-                                          
-                                          
+
+
     /**
      * Look up a local platform font using the full font face name.
      * (Needed to support @font-face src local().)
@@ -364,7 +364,7 @@ public:
 
     // in some situations, need to make decisions about ambiguous characters, may need to look at multiple pref langs
     void GetLangPrefs(eFontPrefLang aPrefLangs[], uint32_t &aLen, eFontPrefLang aCharLang, eFontPrefLang aPageLang);
-    
+
     /**
      * Iterate over pref fonts given a list of lang groups.  For a single lang
      * group, multiple pref fonts are possible.  If error occurs, returns false,
@@ -384,13 +384,13 @@ public:
 
     // convert a enum constant to lang group string (i.e. eFontPrefLang_ChineseTW ==> "zh-TW")
     static const char* GetPrefLangName(eFontPrefLang aLang);
-   
+
     // map a Unicode range (based on char code) to a font language for Preferences
     static eFontPrefLang GetFontPrefLangFor(uint8_t aUnicodeRange);
 
     // returns true if a pref lang is CJK
     static bool IsLangCJK(eFontPrefLang aLang);
-    
+
     // helper method to add a pref lang to an array, if not already in array
     static void AppendPrefLang(eFontPrefLang aPrefLangs[], uint32_t& aLen, eFontPrefLang aAddLang);
 
@@ -504,7 +504,7 @@ protected:
     gfxPlatform();
     virtual ~gfxPlatform();
 
-    void AppendCJKPrefLangs(eFontPrefLang aPrefLangs[], uint32_t &aLen, 
+    void AppendCJKPrefLangs(eFontPrefLang aPrefLangs[], uint32_t &aLen,
                             eFontPrefLang aCharLang, eFontPrefLang aPageLang);
 
     /**
@@ -566,7 +566,7 @@ protected:
 
     int8_t  mBidiNumeralOption;
 
-    // whether to always search font cmaps globally 
+    // whether to always search font cmaps globally
     // when doing system font fallback
     int8_t  mFallbackUsesCmaps;
 
