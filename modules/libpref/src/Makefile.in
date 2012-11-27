@@ -24,6 +24,7 @@ CPPSRCS		= \
 			  prefapi.cpp \
 			  prefread.cpp \
 			  Preferences.cpp	\
+                          PrefContainer.cpp     \
 			 $(NULL)
 
 DEFINES += -DOS_ARCH=$(OS_ARCH) \
