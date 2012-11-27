@@ -237,6 +237,10 @@ static const char *gPrefLangNames[] = {
 
 gfxPlatform::gfxPlatform()
   : mAzureCanvasBackendCollector(this, &gfxPlatform::GetAzureBackendInfo)
+  , mAzureCanvasEnabledPref("gfx.canvas.azure.enabled")
+  , mAzureCanvasBackendPref("gfx.canvas.azure.backends")
+  , mAzureContentEnabledPref("gfx.content.azure.enabled")
+  , mAzureContentBackendPref("gfx.content.azure.backends")
 {
     mUseHarfBuzzScripts = UNINITIALIZED_VALUE;
     mAllowDownloadableFonts = UNINITIALIZED_VALUE;
@@ -1218,46 +1222,28 @@ void
 gfxPlatform::InitBackendPrefs(EnumSet<BackendType> aCanvasSupportedBackends,
                               EnumSet<BackendType> aContentSupportedBackends)
 {
-    mPreferredCanvasBackend = GetCanvasBackendPref(aCanvasSupportedBackends);
-    if (!mPreferredCanvasBackend) {
-      mPreferredCanvasBackend = BACKEND_CAIRO;
+    mPreferredCanvasBackend = GetBackendPref(mAzureCanvasBackendPref.Get(),
+                                             aCanvasSupportedBackends);
+    if (mPreferredCanvasBackend == BACKEND_NONE) {
+        mPreferredCanvasBackend = BACKEND_CAIRO;
     }
-    mFallbackCanvasBackend = GetCanvasBackendPref(aCanvasSupportedBackends -
-                                                  mPreferredCanvasBackend);
-    mContentBackend = GetContentBackendPref(aContentSupportedBackends);
+
+    mFallbackCanvasBackend = GetBackendPref(mAzureCanvasBackendPref.Get(),
+                                            aCanvasSupportedBackends -
+                                            mPreferredCanvasBackend);
+
+    mContentBackend = mAzureContentEnabledPref.Get()
+        ? GetBackendPref(mAzureContentBackendPref.Get(),
+                       aContentSupportedBackends)
+        : BACKEND_NONE;
 }
 
 /* static */ BackendType
-gfxPlatform::GetCanvasBackendPref(EnumSet<BackendType> aSupportedBackends)
-{
-    return GetBackendPref(nullptr,
-                          "gfx.canvas.azure.backends",
-                          aSupportedBackends);
-}
-
-/* static */ BackendType
-gfxPlatform::GetContentBackendPref(EnumSet<BackendType> aSupportedBackends)
-{
-    return GetBackendPref("gfx.content.azure.enabled",
-                          "gfx.content.azure.backends",
-                          aSupportedBackends);
-}
-
-/* static */ BackendType
-gfxPlatform::GetBackendPref(const char* aEnabledPrefName,
-                            const char* aBackendPrefName,
+gfxPlatform::GetBackendPref(const nsCString& aBackends,
                             EnumSet<BackendType> aSupportedBackends)
 {
-    if (aEnabledPrefName &&
-        !Preferences::GetBool(aEnabledPrefName, false)) {
-        return BACKEND_NONE;
-    }
-
     nsTArray<nsCString> backendList;
-    nsCString prefString;
-    if (NS_SUCCEEDED(Preferences::GetCString(aBackendPrefName, &prefString))) {
-        ParseString(prefString, ',', backendList);
-    }
+    ParseString(aBackends, ',', backendList);
 
     for (uint32_t i = 0; i < backendList.Length(); ++i) {
         BackendType requestedBackend = BackendTypeForName(backendList[i]);

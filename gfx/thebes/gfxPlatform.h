@@ -21,6 +21,7 @@
 #include "mozilla/RefPtr.h"
 #include "mozilla/EnumSet.h"
 #include "GfxInfoCollector.h"
+#include "mozilla/PrefContainer.h"
 
 #ifdef XP_OS2
 #undef OS2EMX_PLAIN_CHAR
@@ -526,27 +527,12 @@ protected:
         mozilla::EnumSet<mozilla::gfx::BackendType> aContentSupportedBackends);
 
     /**
-     * returns the first backend named in the pref gfx.canvas.azure.backends
-     * which is a contained in the set of supported backends.
-     */
-    static mozilla::gfx::BackendType GetCanvasBackendPref(
-        mozilla::EnumSet<mozilla::gfx::BackendType> aSupportedBackends);
-
-    /**
-     * returns the first backend named in the pref gfx.content.azure.backend
-     * which is a contained in the set of supported backends.
-     */
-    static mozilla::gfx::BackendType GetContentBackendPref(
-        mozilla::EnumSet<mozilla::gfx::BackendType> aSupportedBackends);
-
-    /**
      * If aEnabledPrefName is non-null, checks the aEnabledPrefName pref and
      * returns BACKEND_NONE if the pref is not enabled.
      * Otherwise it will return the first backend named in aBackendPrefName
      * aBackendPrefName allowed by aSupportedBackends.
      */
-    static mozilla::gfx::BackendType GetBackendPref(
-        const char* aEnabledPrefName, const char* aBackendPrefName,
+    static mozilla::gfx::BackendType GetBackendPref(const nsCString& aBackends,
         mozilla::EnumSet<mozilla::gfx::BackendType> aSupportedBackends);
 
     /**
@@ -600,6 +586,11 @@ private:
     mozilla::RefPtr<mozilla::gfx::DrawEventRecorder> mRecorder;
     bool mWidgetUpdateFlashing;
     uint32_t mOrientationSyncMillis;
+
+    mozilla::PrefContainer<bool> mAzureCanvasEnabledPref;
+    mozilla::PrefContainer<nsCString> mAzureCanvasBackendPref;
+    mozilla::PrefContainer<bool> mAzureContentEnabledPref;
+    mozilla::PrefContainer<nsCString> mAzureContentBackendPref;
 };
 
 #endif /* GFX_PLATFORM_H */
