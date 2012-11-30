@@ -23,6 +23,8 @@
 #include "GfxInfoCollector.h"
 #include "mozilla/PrefContainer.h"
 
+#include "GLContext.h"
+
 #ifdef XP_OS2
 #undef OS2EMX_PLAIN_CHAR
 #endif
@@ -222,6 +224,8 @@ public:
     bool SupportsAzureContent() {
       return GetContentBackend() != mozilla::gfx::BACKEND_NONE;
     }
+
+    virtual bool UseAcceleratedCanvas();
 
     void GetAzureBackendInfo(mozilla::widget::InfoObject &aObj) {
       aObj.DefineProperty("AzureCanvasBackend", GetBackendName(mPreferredCanvasBackend));
