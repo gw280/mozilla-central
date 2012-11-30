@@ -144,15 +144,18 @@ CanvasLayerOGL::Initialize(const Data& aData)
     }
 #endif
   } else if (aData.mGLContext) {
-    if (!aData.mGLContext->IsOffscreen()) {
+    if (!aData.mGLContext->IsOffscreen() && aData.mTextureID == 0) {
       NS_WARNING("CanvasLayerOGL with a non-offscreen GL context given");
       return;
     }
 
     mCanvasGLContext = aData.mGLContext;
+    mTexture = aData.mTextureID;
     mGLBufferIsPremultiplied = aData.mGLBufferIsPremultiplied;
 
-    mNeedsYFlip = mCanvasGLContext->GetOffscreenTexture() != 0;
+    mNeedsYFlip = mCanvasGLContext->GetOffscreenTexture() != 0
+               || aData.mTextureID != 0;
+
   } else {
     NS_WARNING("CanvasLayerOGL::Initialize called without surface or GL context!");
     return;
@@ -166,7 +169,12 @@ CanvasLayerOGL::Initialize(const Data& aData)
   gl()->fGetIntegerv(LOCAL_GL_MAX_TEXTURE_SIZE, &texSize);
   if (mBounds.width > (2 + texSize) || mBounds.height > (2 + texSize)) {
     mDelayedUpdates = true;
-    MakeTextureIfNeeded(gl(), mTexture);
+    if (!mTexture) {
+      MOZ_ASSERT(!mUploadTexture);
+      MakeTextureIfNeeded(gl(), mUploadTexture);
+      mTexture = mUploadTexture;
+    }
+
     // This should only ever occur with 2d canvas, WebGL can't already have a texture
     // of this size can it?
     NS_ABORT_IF_FALSE(mCanvasSurface || mDrawTarget, 
@@ -208,12 +216,10 @@ CanvasLayerOGL::UpdateSurface()
     // Can texture share, just make sure it's resolved first
     mCanvasGLContext->GuaranteeResolve();
 
-    if (gl()->BindOffscreenNeedsTexture(mCanvasGLContext) &&
-        mTexture == 0)
-    {
-      mOGLManager->MakeCurrent();
-      MakeTextureIfNeeded(gl(), mTexture);
+    if (!mTexture) {
+      mTexture = mCanvasGLContext->GetOffscreenTexture();
     }
+
     return;
   }
 
@@ -252,9 +258,11 @@ CanvasLayerOGL::UpdateSurface()
   mOGLManager->MakeCurrent();
   mLayerProgram = gl()->UploadSurfaceToTexture(updatedAreaSurface,
                                                mBounds,
-                                               mTexture,
+                                               mUploadTexture,
                                                false,
                                                nsIntPoint(0, 0));
+  
+  mTexture = mUploadTexture;
 }
 
 void
@@ -288,7 +296,6 @@ CanvasLayerOGL::RenderLayer(int aPreviousDestination,
   nsIntRect drawRect = mBounds;
 
   if (useGLContext) {
-    gl()->BindTex2DOffscreen(mCanvasGLContext);
     program = mOGLManager->GetBasicLayerProgram(CanUseOpaqueSurface(),
                                                 true,
                                                 GetMaskLayer() ? Mask2d : MaskNone);
@@ -300,10 +307,14 @@ CanvasLayerOGL::RenderLayer(int aPreviousDestination,
     mLayerProgram =
       gl()->UploadSurfaceToTexture(mCanvasSurface,
                                    nsIntRect(0, 0, drawRect.width, drawRect.height),
-                                   mTexture,
+                                   mUploadTexture,
                                    true,
                                    drawRect.TopLeft());
+
+    mTexture = mUploadTexture;
   }
+
+  MOZ_ASSERT(mTexture);
 
   if (!program) {
     program = mOGLManager->GetProgram(mLayerProgram, GetMaskLayer());
@@ -349,9 +360,9 @@ CanvasLayerOGL::RenderLayer(int aPreviousDestination,
 void
 CanvasLayerOGL::CleanupResources()
 {
-  if (mTexture) {
+  if (mUploadTexture) {
     gl()->MakeCurrent();
-    gl()->fDeleteTextures(1, &mTexture);
+    gl()->fDeleteTextures(1, &mUploadTexture);
   }
 }
 

@@ -100,6 +100,14 @@
 #include <cstdlib> // for std::abs(int/long)
 #include <cmath> // for std::abs(float/double)
 
+#include "GLContext.h"
+#include "GLContextProvider.h"
+
+#ifdef USE_SKIA
+#include <skia/GrContext.h>
+#include <skia/GrGLInterface.h>
+#endif
+
 #ifdef XP_WIN
 #include "gfxWindowsPlatform.h"
 #endif
@@ -118,6 +126,31 @@ namespace mgfx = mozilla::gfx;
 
 #define NS_TEXTMETRICSAZURE_PRIVATE_IID \
   {0x9793f9e7, 0x9dc1, 0x4e9c, {0x81, 0xc8, 0xfc, 0xa7, 0x14, 0xf4, 0x30, 0x79}}
+
+static nsRefPtr<gl::GLContext> sGLContext = 0;
+
+nsRefPtr<gl::GLContext> GetGLContext() {
+  if (!sGLContext) {
+    sGLContext = mozilla::gl::GLContextProvider::CreateOffscreen(gfxIntSize(16, 16));
+  }
+  sGLContext->MakeCurrent();
+  return sGLContext;
+}
+
+#ifdef USE_SKIA
+static GrContext* sGrContext = 0;
+GrGLInterface* CreateGrInterfaceFromGLContext(gl::GLContext* context);
+
+GrContext* GetGrContext() {
+  if (!sGrContext) {
+    gl::GLContext* glContext = GetGLContext().get();
+    GrGLInterface* interface = CreateGrInterfaceFromGLContext(glContext);
+    sGrContext = GrContext::Create(kOpenGL_Shaders_GrEngine, (GrPlatform3DContext)interface);
+  }
+
+  return sGrContext;
+}
+#endif
 
 namespace mozilla {
 namespace dom {
@@ -535,6 +568,7 @@ CanvasRenderingContext2D::CanvasRenderingContext2D()
   , mIsEntireFrameInvalid(false)
   , mPredictManyRedrawCalls(false), mPathTransformWillUpdate(false)
   , mInvalidateCount(0)
+  , mTextureID(0)
 {
   sNumLivingContexts++;
   SetIsDOMBinding();
@@ -785,7 +819,18 @@ CanvasRenderingContext2D::EnsureTarget()
     }
 
      if (layerManager) {
-       mTarget = layerManager->CreateDrawTarget(size, format);
+#ifdef USE_SKIA
+       if (gfxPlatform::GetPlatform()->UseAcceleratedCanvas()) {
+         GetGLContext()->fGenTextures(1, &mTextureID);
+         MOZ_ASSERT(mTextureID);
+         GetGLContext()->fBindTexture(LOCAL_GL_TEXTURE_2D, mTextureID);
+         GetGLContext()->fTexImage2D(LOCAL_GL_TEXTURE_2D, 0, LOCAL_GL_RGBA, 
+                                     size.width, size.height, 0,
+                                     LOCAL_GL_RGBA, LOCAL_GL_UNSIGNED_BYTE, nullptr);
+         mTarget = Factory::CreateDrawTargetForOpenGLTexture(GetGrContext(), mTextureID, size);
+       } else
+#endif
+         mTarget = layerManager->CreateDrawTarget(size, format);
      } else {
        mTarget = gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(size, format);
      }
@@ -3784,7 +3829,13 @@ CanvasRenderingContext2D::GetCanvasLayer(nsDisplayListBuilder* aBuilder,
 
   CanvasLayer::Data data;
 
-  data.mDrawTarget = mTarget;
+  if (mTextureID) {
+    data.mGLContext = GetGLContext().get();
+    data.mTextureID = mTextureID;
+  } else {
+    data.mDrawTarget = mTarget;
+  }
+
   data.mSize = nsIntSize(mWidth, mHeight);
 
   canvasLayer->Initialize(data);

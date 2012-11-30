@@ -29,6 +29,7 @@ public:
       LayerOGL(aManager),
       mLayerProgram(gl::RGBALayerProgramType),
       mTexture(0),
+      mUploadTexture(0),
       mTextureTarget(LOCAL_GL_TEXTURE_2D),
       mDelayedUpdates(false)
 #if defined(GL_PROVIDER_GLX)
@@ -59,6 +60,7 @@ protected:
   RefPtr<gfx::DrawTarget> mDrawTarget;
 
   GLuint mTexture;
+  GLuint mUploadTexture;
   GLenum mTextureTarget;
 
   bool mDelayedUpdates;

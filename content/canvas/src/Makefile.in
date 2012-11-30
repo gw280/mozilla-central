@@ -34,6 +34,13 @@ CPPSRCS	= \
 	ImageData.cpp \
 	$(NULL)
 
+ifdef MOZ_ENABLE_SKIA
+DEFINES += -DUSE_SKIA
+ifeq (android,$(MOZ_WIDGET_TOOLKIT))
+DEFINES += -DSK_BUILD_FOR_ANDROID_NDK
+endif
+endif
+
 ifdef MOZ_WEBGL
 
 CPPSRCS += \

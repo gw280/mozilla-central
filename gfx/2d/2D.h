@@ -30,7 +30,10 @@ struct ID3D10Device1;
 struct ID3D10Texture2D;
 struct IDWriteRenderingParams;
 
+class GrContext;
+
 namespace mozilla {
+
 namespace gfx {
 
 class SourceSurface;
@@ -910,6 +913,9 @@ public:
     CreateEventRecorderForFile(const char *aFilename);
 
   static void SetGlobalEventRecorder(DrawEventRecorder *aRecorder);
+
+  static TemporaryRef<DrawTarget>
+    CreateDrawTargetForOpenGLTexture(GrContext *aContext, unsigned int aTextureID, const IntSize &aSize);
 
 #ifdef WIN32
   static TemporaryRef<DrawTarget> CreateDrawTargetForD3D10Texture(ID3D10Texture2D *aTexture, SurfaceFormat aFormat);

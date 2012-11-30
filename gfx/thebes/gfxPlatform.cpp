@@ -702,6 +702,13 @@ DataDrawTargetDestroy(void *aTarget)
   static_cast<DrawTarget*>(aTarget)->Release();
 }
 
+bool
+gfxPlatform::UseAcceleratedCanvas()
+{
+  return Preferences::GetBool("gfx.canvas.azure.accelerated", false) &&
+         mPreferredCanvasBackend == BACKEND_SKIA;
+}
+
 already_AddRefed<gfxASurface>
 gfxPlatform::GetThebesSurfaceForDrawTarget(DrawTarget *aTarget)
 {
