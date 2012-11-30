@@ -7,6 +7,7 @@
 #include "SourceSurfaceSkia.h"
 #include "ScaledFontBase.h"
 #include "skia/SkDevice.h"
+#include "skia/SkGpuDevice.h"
 #include "skia/SkTypeface.h"
 #include "skia/SkGradientShader.h"
 #include "skia/SkBlurDrawLooper.h"
@@ -248,6 +249,7 @@ struct AutoPaintSetup {
 void
 DrawTargetSkia::Flush()
 {
+  mCanvas->flush();
 }
 
 void
@@ -584,6 +586,29 @@ DrawTargetSkia::Init(const IntSize &aSize, SurfaceFormat aFormat)
   mCanvas = canvas.get();
   mFormat = aFormat;
   return true;
+}
+
+void
+DrawTargetSkia::Init(GrContext* aGrContext, unsigned int aTextureID, const IntSize &aSize)
+{
+  GrPlatformTextureDesc targetDescriptor;
+
+  targetDescriptor.fFlags = kRenderTarget_GrPlatformTextureFlag;
+  targetDescriptor.fWidth = aSize.width;
+  targetDescriptor.fHeight = aSize.height;
+  targetDescriptor.fConfig = kRGBA_8888_GrPixelConfig;
+  targetDescriptor.fSampleCnt = 0;
+  targetDescriptor.fTextureHandle = aTextureID;
+
+  SkAutoTUnref<GrTexture> target(aGrContext->createPlatformTexture(targetDescriptor));
+
+  SkAutoTUnref<SkDevice> device(new SkGpuDevice(aGrContext, target.get()));
+  SkAutoTUnref<SkCanvas> canvas(new SkCanvas(device.get()));
+  mSize = aSize;
+
+  mDevice = device.get();
+  mCanvas = canvas.get();
+  mFormat = FORMAT_B8G8R8A8;
 }
 
 void
