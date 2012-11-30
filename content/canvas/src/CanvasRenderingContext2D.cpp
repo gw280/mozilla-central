@@ -100,6 +100,14 @@
 #include <cstdlib> // for std::abs(int/long)
 #include <cmath> // for std::abs(float/double)
 
+#include "GLContext.h"
+#include "GLContextProvider.h"
+
+#ifdef USE_SKIA
+#include <skia/GrContext.h>
+#include <skia/GrGLInterface.h>
+#endif
+
 #ifdef XP_WIN
 #include "gfxWindowsPlatform.h"
 #endif
@@ -118,6 +126,10 @@ namespace mgfx = mozilla::gfx;
 
 #define NS_TEXTMETRICSAZURE_PRIVATE_IID \
   {0x9793f9e7, 0x9dc1, 0x4e9c, {0x81, 0xc8, 0xfc, 0xa7, 0x14, 0xf4, 0x30, 0x79}}
+
+#ifdef USE_SKIA
+GrGLInterface* CreateGrInterfaceFromGLContext(gl::GLContext* context);
+#endif
 
 namespace mozilla {
 namespace dom {
@@ -534,6 +546,10 @@ CanvasRenderingContext2D::CanvasRenderingContext2D()
   , mIsEntireFrameInvalid(false)
   , mPredictManyRedrawCalls(false), mPathTransformWillUpdate(false)
   , mInvalidateCount(0)
+#ifdef USE_SKIA
+  , mGLContext(0)
+  , mGrContext(0)
+#endif
 {
   sNumLivingContexts++;
   SetIsDOMBinding();
@@ -784,7 +800,16 @@ CanvasRenderingContext2D::EnsureTarget()
     }
 
      if (layerManager) {
-       mTarget = layerManager->CreateDrawTarget(size, format);
+#ifdef USE_SKIA
+       if (gfxPlatform::GetPlatform()->UseAcceleratedCanvas()) {
+         mGLContext = mozilla::gl::GLContextProvider::CreateOffscreen(gfxIntSize(size.width,
+                                                                                 size.height));
+         GrGLInterface* interface = CreateGrInterfaceFromGLContext(mGLContext);
+         mGrContext = GrContext::Create(kOpenGL_Shaders_GrEngine, (GrPlatform3DContext)interface);
+         mTarget = Factory::CreateAcceleratedDrawTarget(mGrContext, size);
+       } else
+#endif
+         mTarget = layerManager->CreateDrawTarget(size, format);
      } else {
        mTarget = gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(size, format);
      }
@@ -3794,8 +3819,15 @@ CanvasRenderingContext2D::GetCanvasLayer(nsDisplayListBuilder* aBuilder,
   canvasLayer->SetUserData(&g2DContextLayerUserData, userData);
 
   CanvasLayer::Data data;
+#ifdef USE_SKIA
+  if (mGLContext) {
+    data.mGLContext = mGLContext;
+  } else
+#endif
+  {
+    data.mDrawTarget = mTarget;
+  }
 
-  data.mDrawTarget = mTarget;
   data.mSize = nsIntSize(mWidth, mHeight);
 
   canvasLayer->Initialize(data);

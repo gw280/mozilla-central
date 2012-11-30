@@ -145,6 +145,7 @@ CanvasLayerOGL::Initialize(const Data& aData)
     mGLBufferIsPremultiplied = aData.mGLBufferIsPremultiplied;
 
     mNeedsYFlip = mCanvasGLContext->GetOffscreenTexture() != 0;
+
   } else {
     NS_WARNING("CanvasLayerOGL::Initialize called without surface or GL context!");
     return;
@@ -159,6 +160,7 @@ CanvasLayerOGL::Initialize(const Data& aData)
   if (mBounds.width > (2 + texSize) || mBounds.height > (2 + texSize)) {
     mDelayedUpdates = true;
     MakeTextureIfNeeded(gl(), mTexture);
+
     // This should only ever occur with 2d canvas, WebGL can't already have a texture
     // of this size can it?
     NS_ABORT_IF_FALSE(mCanvasSurface || mDrawTarget, 
@@ -206,6 +208,7 @@ CanvasLayerOGL::UpdateSurface()
       mOGLManager->MakeCurrent();
       MakeTextureIfNeeded(gl(), mTexture);
     }
+
     return;
   }
 

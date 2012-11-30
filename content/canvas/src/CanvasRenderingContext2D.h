@@ -664,6 +664,13 @@ protected:
   // sErrorTarget.
   mozilla::RefPtr<mozilla::gfx::DrawTarget> mTarget;
 
+#ifdef USE_SKIA
+  nsRefPtr<gl::GLContext> mGLContext;
+  GrContext* mGrContext;
+#endif
+
+  GLuint mTextureID;
+
   /**
     * Flag to avoid duplicate calls to InvalidateFrame. Set to true whenever
     * Redraw is called, reset to false when Render is called.

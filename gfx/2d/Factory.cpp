@@ -449,6 +449,16 @@ Factory::D2DCleanup()
 
 #endif // XP_WIN
 
+#ifdef USE_SKIA
+TemporaryRef<DrawTarget>
+Factory::CreateAcceleratedDrawTarget(GrContext *aGrContext, const IntSize &aSize)
+{
+  RefPtr<DrawTargetSkia> newTarget = new DrawTargetSkia();
+  newTarget->Init(aGrContext, aSize);
+  return newTarget;
+}
+#endif // USE_SKIA
+
 TemporaryRef<DrawTarget>
 Factory::CreateDrawTargetForCairoSurface(cairo_surface_t* aSurface, const IntSize& aSize)
 {
