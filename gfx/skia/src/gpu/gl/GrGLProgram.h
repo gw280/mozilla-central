@@ -61,12 +61,10 @@ public:
      * Attribute indices. These should not overlap. Matrices consume 3 slots.
      */
     static int PositionAttributeIdx() { return 0; }
-    static int TexCoordAttributeIdx(int tcIdx) { return 1 + tcIdx; }
-    static int ColorAttributeIdx() { return 1 + GrDrawState::kMaxTexCoords; }
-    static int CoverageAttributeIdx() {
-        return 2 + GrDrawState::kMaxTexCoords;
-    }
-    static int EdgeAttributeIdx() { return 3 + GrDrawState::kMaxTexCoords; }
+    static int ColorAttributeIdx() { return 1; }
+    static int CoverageAttributeIdx() { return 2; }
+    static int EdgeAttributeIdx() { return 3; }
+    static int TexCoordAttributeIdx(int tcIdx) { return 4 + tcIdx; }
 
     static int ViewMatrixAttributeIdx() {
         return 4 + GrDrawState::kMaxTexCoords;
