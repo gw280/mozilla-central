@@ -827,6 +827,7 @@ CanvasRenderingContext2D::EnsureTarget()
          GetGLContext()->fTexImage2D(LOCAL_GL_TEXTURE_2D, 0, LOCAL_GL_RGBA, 
                                      size.width, size.height, 0,
                                      LOCAL_GL_RGBA, LOCAL_GL_UNSIGNED_BYTE, nullptr);
+         GetGrContext()->resetContext();
          mTarget = Factory::CreateDrawTargetForOpenGLTexture(GetGrContext(), mTextureID, size);
        } else
 #endif
