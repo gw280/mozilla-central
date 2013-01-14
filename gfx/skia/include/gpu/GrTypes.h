@@ -13,6 +13,7 @@
 
 #include "SkTypes.h"
 #include "GrConfig.h"
+#include "SkMath.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -137,11 +138,6 @@ static inline void Gr_bzero(void* dst, size_t size) {
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
- *  Return the number of leading zeros in n
- */
-extern int Gr_clz(uint32_t n);
-
-/**
  *  Return true if n is a power of 2
  */
 static inline bool GrIsPow2(unsigned n) {
@@ -152,12 +148,12 @@ static inline bool GrIsPow2(unsigned n) {
  *  Return the next power of 2 >= n.
  */
 static inline uint32_t GrNextPow2(uint32_t n) {
-    return n ? (1 << (32 - Gr_clz(n - 1))) : 1;
+    return n ? (1 << (32 - SkCLZ(n - 1))) : 1;
 }
 
 static inline int GrNextPow2(int n) {
     GrAssert(n >= 0); // this impl only works for non-neg.
-    return n ? (1 << (32 - Gr_clz(n - 1))) : 1;
+    return n ? (1 << (32 - SkCLZ(n - 1))) : 1;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -186,16 +182,15 @@ static inline int16_t GrToS16(intptr_t x) {
 /**
  * Possible 3D APIs that may be used by Ganesh.
  */
-enum GrEngine {
-    kOpenGL_Shaders_GrEngine,
-    kOpenGL_Fixed_GrEngine,
+enum GrBackend {
+    kOpenGL_GrBackend,
 };
 
 /**
- * Engine-specific 3D context handle
+ * Backend-specific 3D context handle
  *      GrGLInterface* for OpenGL. If NULL will use the default GL interface.
  */
-typedef intptr_t GrPlatform3DContext;
+typedef intptr_t GrBackendContext;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -458,50 +453,61 @@ struct GrTextureDesc {
      * applies if the kRenderTarget_GrTextureFlagBit is set. The actual number
      * of samples may not exactly match the request. The request will be rounded
      * up to the next supported sample count, or down if it is larger than the
-     * max supportex count.
+     * max supported count.
      */
     int                    fSampleCnt;
 };
 
 /**
- * GrCacheData holds user-provided cache-specific data. It is used in
- * combination with the GrTextureDesc to construct a cache key for texture
- * resources.
+ * GrCacheID is used create and find cached GrResources (e.g. GrTextures). The ID has two parts:
+ * the domain and the key. Domains simply allow multiple clients to use 0-based indices as their
+ * cache key without colliding. The key uniquely identifies a GrResource within the domain.
+ * Users of the cache must obtain a domain via GenerateDomain().
  */
-struct GrCacheData {
-    /*
-     * Scratch textures should all have this value as their fClientCacheID
-     */
-    static const uint64_t kScratch_CacheID = 0xBBBBBBBB;
+struct GrCacheID {
+public:
+    typedef uint8_t  Domain;
+
+    struct Key {
+        union {
+            uint8_t  fData8[16];
+            uint32_t fData32[4];
+            uint64_t fData64[2];
+        };
+    };
 
     /**
-      * Resources in the "scratch" domain can be used by any domain. All
-      * scratch textures will have this as their domain.
-      */
-    static const uint8_t kScratch_ResourceDomain = 0;
+     * A default cache ID is invalid; a set method must be called before the object is used.
+     */
+    GrCacheID() { fDomain = kInvalid_Domain; }
 
-
-    // No default constructor is provided since, if you are creating one
-    // of these, you should definitely have a key (or be using the scratch
-    // key).
-    GrCacheData(uint64_t key)
-    : fClientCacheID(key)
-    , fResourceDomain(kScratch_ResourceDomain) {
+    /**
+     * Initialize the cache ID to a domain and key.
+     */
+    GrCacheID(Domain domain, const Key& key) {
+        GrAssert(kInvalid_Domain != domain);
+        this->reset(domain, key);
     }
 
-    /**
-     * A user-provided texture ID. It should be unique to the texture data and
-     * does not need to take into account the width or height. Two textures
-     * with the same ID but different dimensions will not collide. This field
-     * is only relevant for textures that will be cached.
-     */
-    uint64_t               fClientCacheID;
+    void reset(Domain domain, const Key& key) {
+        fDomain = domain;
+        memcpy(&fKey, &key, sizeof(Key));
+    }
 
-    /**
-     * Allows cache clients to cluster their textures inside domains (e.g.,
-     * alpha clip masks). Only relevant for cached textures.
-     */
-    uint8_t                fResourceDomain;
+    /** Has this been initialized to a valid domain */
+    bool isValid() const { return kInvalid_Domain != fDomain; }
+
+    const Key& getKey() const { GrAssert(this->isValid()); return fKey; }
+    Domain getDomain() const { GrAssert(this->isValid()); return fDomain; }
+
+    /** Creates a new unique ID domain. */
+    static Domain GenerateDomain();
+
+private:
+    Key             fKey;
+    Domain          fDomain;
+
+    static const Domain kInvalid_Domain = 0;
 };
 
 /**
@@ -545,57 +551,10 @@ static int inline NumPathCmdPoints(GrPathCmd cmd) {
     return gNumPoints[cmd];
 }
 
-/**
- * Path filling rules
- */
-enum GrPathFill {
-    kWinding_GrPathFill,
-    kEvenOdd_GrPathFill,
-    kInverseWinding_GrPathFill,
-    kInverseEvenOdd_GrPathFill,
-    kHairLine_GrPathFill,
-
-    kGrPathFillCount
-};
-
-static inline GrPathFill GrNonInvertedFill(GrPathFill fill) {
-    static const GrPathFill gNonInvertedFills[] = {
-        kWinding_GrPathFill, // kWinding_GrPathFill
-        kEvenOdd_GrPathFill, // kEvenOdd_GrPathFill
-        kWinding_GrPathFill, // kInverseWinding_GrPathFill
-        kEvenOdd_GrPathFill, // kInverseEvenOdd_GrPathFill
-        kHairLine_GrPathFill,// kHairLine_GrPathFill
-    };
-    GR_STATIC_ASSERT(0 == kWinding_GrPathFill);
-    GR_STATIC_ASSERT(1 == kEvenOdd_GrPathFill);
-    GR_STATIC_ASSERT(2 == kInverseWinding_GrPathFill);
-    GR_STATIC_ASSERT(3 == kInverseEvenOdd_GrPathFill);
-    GR_STATIC_ASSERT(4 == kHairLine_GrPathFill);
-    GR_STATIC_ASSERT(5 == kGrPathFillCount);
-    return gNonInvertedFills[fill];
-}
-
-static inline bool GrIsFillInverted(GrPathFill fill) {
-    static const bool gIsFillInverted[] = {
-        false, // kWinding_GrPathFill
-        false, // kEvenOdd_GrPathFill
-        true,  // kInverseWinding_GrPathFill
-        true,  // kInverseEvenOdd_GrPathFill
-        false, // kHairLine_GrPathFill
-    };
-    GR_STATIC_ASSERT(0 == kWinding_GrPathFill);
-    GR_STATIC_ASSERT(1 == kEvenOdd_GrPathFill);
-    GR_STATIC_ASSERT(2 == kInverseWinding_GrPathFill);
-    GR_STATIC_ASSERT(3 == kInverseEvenOdd_GrPathFill);
-    GR_STATIC_ASSERT(4 == kHairLine_GrPathFill);
-    GR_STATIC_ASSERT(5 == kGrPathFillCount);
-    return gIsFillInverted[fill];
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 
 // opaque type for 3D API object handles
-typedef intptr_t GrPlatform3DObject;
+typedef intptr_t GrBackendObject;
 
 /**
  * Gr can wrap an existing texture created by the client with a GrTexture
@@ -618,11 +577,11 @@ typedef intptr_t GrPlatform3DObject;
  * Note: These flags currently form a subset of GrTexture's flags.
  */
 
-enum GrPlatformTextureFlags {
+enum GrBackendTextureFlags {
     /**
      * No flags enabled
      */
-    kNone_GrPlatformTextureFlag              = kNone_GrTextureFlags,
+    kNone_GrBackendTextureFlag             = kNone_GrTextureFlags,
     /**
      * Indicates that the texture is also a render target, and thus should have
      * a GrRenderTarget object.
@@ -630,13 +589,13 @@ enum GrPlatformTextureFlags {
      * D3D (future): client must have created the texture with flags that allow
      * it to be used as a render target.
      */
-    kRenderTarget_GrPlatformTextureFlag      = kRenderTarget_GrTextureFlagBit,
+    kRenderTarget_GrBackendTextureFlag     = kRenderTarget_GrTextureFlagBit,
 };
-GR_MAKE_BITFIELD_OPS(GrPlatformTextureFlags)
+GR_MAKE_BITFIELD_OPS(GrBackendTextureFlags)
 
-struct GrPlatformTextureDesc {
-    GrPlatformTextureDesc() { memset(this, 0, sizeof(*this)); }
-    GrPlatformTextureFlags          fFlags;
+struct GrBackendTextureDesc {
+    GrBackendTextureDesc() { memset(this, 0, sizeof(*this)); }
+    GrBackendTextureFlags           fFlags;
     int                             fWidth;         //<! width in pixels
     int                             fHeight;        //<! height in pixels
     GrPixelConfig                   fConfig;        //<! color format
@@ -649,7 +608,7 @@ struct GrPlatformTextureDesc {
      * Handle to the 3D API object.
      * OpenGL: Texture ID.
      */
-    GrPlatform3DObject              fTextureHandle;
+    GrBackendObject                 fTextureHandle;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -664,14 +623,14 @@ struct GrPlatformTextureDesc {
  * the 3D API doesn't require this (OpenGL).
  */
 
-struct GrPlatformRenderTargetDesc {
-    GrPlatformRenderTargetDesc() { memset(this, 0, sizeof(*this)); }
+struct GrBackendRenderTargetDesc {
+    GrBackendRenderTargetDesc() { memset(this, 0, sizeof(*this)); }
     int                             fWidth;         //<! width in pixels
     int                             fHeight;        //<! height in pixels
     GrPixelConfig                   fConfig;        //<! color format
     /**
      * The number of samples per pixel. Gr uses this to influence decisions
-     * about applying other forms of antialiasing.
+     * about applying other forms of anti-aliasing.
      */
     int                             fSampleCnt;
     /**
@@ -682,13 +641,27 @@ struct GrPlatformRenderTargetDesc {
      * Handle to the 3D API object.
      * OpenGL: FBO ID
      */
-    GrPlatform3DObject              fRenderTargetHandle;
+    GrBackendObject                 fRenderTargetHandle;
 };
 
+///////////////////////////////////////////////////////////////////////////////
+// Legacy names that will be kept until WebKit can be updated.
+
+typedef GrBackend GrEngine;
+static const GrBackend kOpenGL_Shaders_GrEngine = kOpenGL_GrBackend;
+
+typedef GrBackendContext GrPlatform3DContext;
+
+typedef GrBackendObject GrPlatform3DObject;
+
+typedef GrBackendTextureFlags GrPlatformTextureFlags;
+static const GrBackendTextureFlags kNone_GrPlatformTextureFlag = kNone_GrBackendTextureFlag;
+static const GrBackendTextureFlags kRenderTarget_GrPlatformTextureFlag = kRenderTarget_GrBackendTextureFlag;
+
+typedef GrBackendTextureDesc GrPlatformTextureDesc;
+
+typedef GrBackendRenderTargetDesc GrPlatformRenderTargetDesc;
 
 ///////////////////////////////////////////////////////////////////////////////
-
-// this is included only to make it easy to use this debugging facility
-#include "GrInstanceCounter.h"
 
 #endif

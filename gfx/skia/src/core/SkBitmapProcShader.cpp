@@ -35,21 +35,10 @@ SkBitmapProcShader::SkBitmapProcShader(const SkBitmap& src,
 SkBitmapProcShader::SkBitmapProcShader(SkFlattenableReadBuffer& buffer)
         : INHERITED(buffer) {
     buffer.readBitmap(&fRawBitmap);
+    fRawBitmap.setImmutable();
     fState.fTileModeX = buffer.readUInt();
     fState.fTileModeY = buffer.readUInt();
     fFlags = 0; // computed in setContext
-}
-
-void SkBitmapProcShader::beginSession() {
-    this->INHERITED::beginSession();
-
-    fRawBitmap.lockPixels();
-}
-
-void SkBitmapProcShader::endSession() {
-    fRawBitmap.unlockPixels();
-
-    this->INHERITED::endSession();
 }
 
 SkShader::BitmapType SkBitmapProcShader::asABitmap(SkBitmap* texture,
@@ -101,6 +90,7 @@ bool SkBitmapProcShader::setContext(const SkBitmap& device,
     }
 
     if (!fState.chooseProcs(this->getTotalInverse(), paint)) {
+        fState.fOrigBitmap.unlockPixels();
         return false;
     }
 
@@ -146,6 +136,11 @@ bool SkBitmapProcShader::setContext(const SkBitmap& device,
 
     fFlags = flags;
     return true;
+}
+
+void SkBitmapProcShader::endContext() {
+    fState.fOrigBitmap.unlockPixels();
+    this->INHERITED::endContext();
 }
 
 #define BUF_MAX     128
@@ -201,6 +196,14 @@ void SkBitmapProcShader::shadeSpan(int x, int y, SkPMColor dstC[], int count) {
         x += n;
         dstC += n;
     }
+}
+
+SkShader::ShadeProc SkBitmapProcShader::asAShadeProc(void** ctx) {
+    if (fState.getShaderProc32()) {
+        *ctx = &fState;
+        return (ShadeProc)fState.getShaderProc32();
+    }
+    return NULL;
 }
 
 void SkBitmapProcShader::shadeSpan16(int x, int y, uint16_t dstC[], int count) {
@@ -299,8 +302,6 @@ SkShader* SkShader::CreateBitmapShader(const SkBitmap& src,
     return shader;
 }
 
-SK_DEFINE_FLATTENABLE_REGISTRAR(SkBitmapProcShader)
-
 ///////////////////////////////////////////////////////////////////////////////
 
 static const char* gTileModeName[] = {
@@ -323,10 +324,9 @@ bool SkBitmapProcShader::toDumpString(SkString* str) const {
 
     // add the (optional) matrix
     {
-        SkMatrix m;
-        if (this->getLocalMatrix(&m)) {
+        if (this->hasLocalMatrix()) {
             SkString info;
-            m.toDumpString(&info);
+            this->getLocalMatrix().toDumpString(&info);
             str->appendf(" %s", info.c_str());
         }
     }
@@ -336,4 +336,41 @@ bool SkBitmapProcShader::toDumpString(SkString* str) const {
                  gTileModeName[fState.fTileModeY]);
     return true;
 }
+///////////////////////////////////////////////////////////////////////////////
 
+#if SK_SUPPORT_GPU
+
+#include "GrTextureAccess.h"
+#include "effects/GrSingleTextureEffect.h"
+#include "SkGr.h"
+
+GrEffect* SkBitmapProcShader::asNewEffect(GrContext* context, const SkPaint& paint) const {
+    SkMatrix matrix;
+    matrix.setIDiv(fRawBitmap.width(), fRawBitmap.height());
+
+    if (this->hasLocalMatrix()) {
+        SkMatrix inverse;
+        if (!this->getLocalMatrix().invert(&inverse)) {
+            return NULL;
+        }
+        matrix.preConcat(inverse);
+    }
+    SkShader::TileMode tm[] = {
+        (TileMode)fState.fTileModeX,
+        (TileMode)fState.fTileModeY,
+    };
+
+    // Must set wrap and filter on the sampler before requesting a texture.
+    GrTextureParams params(tm, paint.isFilterBitmap());
+    GrTexture* texture = GrLockCachedBitmapTexture(context, fRawBitmap, &params);
+
+    if (NULL == texture) {
+        SkDebugf("Couldn't convert bitmap to texture.\n");
+        return NULL;
+    }
+
+    GrEffect* effect = SkNEW_ARGS(GrSingleTextureEffect, (texture, matrix, params));
+    GrUnlockCachedBitmapTexture(texture);
+    return effect;
+}
+#endif

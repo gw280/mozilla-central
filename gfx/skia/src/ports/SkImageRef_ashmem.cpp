@@ -7,12 +7,13 @@
  */
 #include "SkImageRef_ashmem.h"
 #include "SkImageDecoder.h"
-#include "SkFlattenable.h"
+#include "SkFlattenableBuffers.h"
 #include "SkThread.h"
+
+#include "android/ashmem.h"
 
 #include <sys/mman.h>
 #include <unistd.h>
-#include <cutils/ashmem.h>
 
 //#define TRACE_ASH_PURGE     // just trace purges
 
@@ -224,12 +225,10 @@ SkImageRef_ashmem::SkImageRef_ashmem(SkFlattenableReadBuffer& buffer)
     fRec.fSize = 0;
     fRec.fPinned = false;
     fCT = NULL;
-    const char* uri = buffer.readString();
+    char* uri = buffer.readString();
     if (uri) {
         setURI(uri);
         sk_free(uri);
     }
     this->useDefaultMutex();   // we don't need/want the shared imageref mutex
 }
-
-SK_DEFINE_FLATTENABLE_REGISTRAR(SkImageRef_ashmem)

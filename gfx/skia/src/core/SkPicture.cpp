@@ -13,6 +13,7 @@
 
 #include "SkCanvas.h"
 #include "SkChunkAlloc.h"
+#include "SkDevice.h"
 #include "SkPicture.h"
 #include "SkRegion.h"
 #include "SkStream.h"
@@ -156,6 +157,12 @@ void SkPicture::clone(SkPicture* pictures, int count) const {
         clone->fHeight = fHeight;
         clone->fRecord = NULL;
 
+        if (NULL != clone->fRecord) {
+            clone->fRecord->unref();
+            clone->fRecord = NULL;
+        }
+        SkDELETE(clone->fPlayback);
+
         /*  We want to copy the src's playback. However, if that hasn't been built
             yet, we need to fake a call to endRecording() without actually calling
             it (since it is destructive, and we don't want to change src).
@@ -185,29 +192,37 @@ SkCanvas* SkPicture::beginRecording(int width, int height,
         fRecord = NULL;
     }
 
-    if (recordingFlags & kOptimizeForClippedPlayback_RecordingFlag) {
-        SkScalar aspectRatio = SkScalarDiv(SkIntToScalar(width),
-                                           SkIntToScalar(height));
-        SkRTree* tree = SkRTree::Create(6, 11, aspectRatio);
-        SkASSERT(NULL != tree);
-        fRecord = SkNEW_ARGS(SkBBoxHierarchyRecord, (recordingFlags, tree));
-        tree->unref();
-    } else {
-        fRecord = SkNEW_ARGS(SkPictureRecord, (recordingFlags));
-    }
+    SkBitmap bm;
+    bm.setConfig(SkBitmap::kNo_Config, width, height);
+    SkAutoTUnref<SkDevice> dev(SkNEW_ARGS(SkDevice, (bm)));
 
+    // Must be set before calling createBBoxHierarchy
     fWidth = width;
     fHeight = height;
 
-    SkBitmap bm;
-    bm.setConfig(SkBitmap::kNo_Config, width, height);
-    fRecord->setBitmapDevice(bm);
+    if (recordingFlags & kOptimizeForClippedPlayback_RecordingFlag) {
+        SkBBoxHierarchy* tree = this->createBBoxHierarchy();
+        SkASSERT(NULL != tree);
+        fRecord = SkNEW_ARGS(SkBBoxHierarchyRecord, (recordingFlags, tree, dev));
+        tree->unref();
+    } else {
+        fRecord = SkNEW_ARGS(SkPictureRecord, (recordingFlags, dev));
+    }
+    fRecord->beginRecording();
 
     return fRecord;
 }
 
-bool SkPicture::hasRecorded() const {
-    return NULL != fRecord && fRecord->writeStream().size() > 0;
+SkBBoxHierarchy* SkPicture::createBBoxHierarchy() const {
+    // These values were empirically determined to produce reasonable
+    // performance in most cases.
+    static const int kRTreeMinChildren = 6;
+    static const int kRTreeMaxChildren = 11;
+
+    SkScalar aspectRatio = SkScalarDiv(SkIntToScalar(fWidth),
+                                       SkIntToScalar(fHeight));
+    return SkRTree::Create(kRTreeMinChildren, kRTreeMaxChildren,
+                           aspectRatio);
 }
 
 SkCanvas* SkPicture::getRecordingCanvas() const {
@@ -238,14 +253,10 @@ void SkPicture::draw(SkCanvas* surface) {
 
 #include "SkStream.h"
 
-// V2 : adds SkPixelRef's generation ID.
-// V3 : PictInfo tag at beginning, and EOF tag at the end
-// V4 : move SkPictInfo to be the header
-// V5 : don't read/write FunctionPtr on cross-process (we can detect that)
-// V6 : added serialization of SkPath's bounds (and packed its flags tighter)
-#define PICTURE_VERSION     6
-
-SkPicture::SkPicture(SkStream* stream) : SkRefCnt() {
+SkPicture::SkPicture(SkStream* stream, bool* success, SkSerializationHelpers::DecodeBitmap decoder) : SkRefCnt() {
+    if (success) {
+        *success = false;
+    }
     fRecord = NULL;
     fPlayback = NULL;
     fWidth = fHeight = 0;
@@ -261,7 +272,7 @@ SkPicture::SkPicture(SkStream* stream) : SkRefCnt() {
 
     if (stream->readBool()) {
         bool isValid = false;
-        fPlayback = SkNEW_ARGS(SkPicturePlayback, (stream, info, &isValid));
+        fPlayback = SkNEW_ARGS(SkPicturePlayback, (stream, info, &isValid, decoder));
         if (!isValid) {
             SkDELETE(fPlayback);
             fPlayback = NULL;
@@ -272,9 +283,12 @@ SkPicture::SkPicture(SkStream* stream) : SkRefCnt() {
     // do this at the end, so that they will be zero if we hit an error.
     fWidth = info.fWidth;
     fHeight = info.fHeight;
+    if (success) {
+        *success = true;
+    }
 }
 
-void SkPicture::serialize(SkWStream* stream) const {
+void SkPicture::serialize(SkWStream* stream, SkSerializationHelpers::EncodeBitmap encoder) const {
     SkPicturePlayback* playback = fPlayback;
 
     if (NULL == playback && fRecord) {
@@ -297,7 +311,7 @@ void SkPicture::serialize(SkWStream* stream) const {
     stream->write(&info, sizeof(info));
     if (playback) {
         stream->writeBool(true);
-        playback->serialize(stream);
+        playback->serialize(stream, encoder);
         // delete playback if it is a local version (i.e. cons'd up just now)
         if (playback != fPlayback) {
             SkDELETE(playback);

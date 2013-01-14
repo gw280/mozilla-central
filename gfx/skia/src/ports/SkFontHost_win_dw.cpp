@@ -489,8 +489,7 @@ protected:
     virtual uint16_t generateCharToGlyph(SkUnichar uni) SK_OVERRIDE;
     virtual void generateAdvance(SkGlyph* glyph) SK_OVERRIDE;
     virtual void generateMetrics(SkGlyph* glyph) SK_OVERRIDE;
-    virtual void generateImage(const SkGlyph& glyph,
-                               SkMaskGamma::PreBlend* maskPreBlend) SK_OVERRIDE;
+    virtual void generateImage(const SkGlyph& glyph) SK_OVERRIDE;
     virtual void generatePath(const SkGlyph& glyph, SkPath* path) SK_OVERRIDE;
     virtual void generateFontMetrics(SkPaint::FontMetrics* mX,
                                      SkPaint::FontMetrics* mY) SK_OVERRIDE;
@@ -688,9 +687,7 @@ SkTypeface* SkCreateTypefaceFromDWriteFont(IDWriteFontFace* fontFace,
                                            StreamFontFileLoader* fontFileLoader = NULL,
                                            IDWriteFontCollectionLoader* fontCollectionLoader = NULL) {
     SkTypeface* face = SkTypefaceCache::FindByProcAndRef(FindByDWriteFont, font);
-    if (face) {
-        face->ref();
-    } else {
+    if (NULL == face) {
         face = DWriteFontTypeface::Create(fontFace, font, fontFamily,
                                           fontFileLoader, fontCollectionLoader);
         SkTypefaceCache::Add(face, get_style(font), fontCollectionLoader != NULL);
@@ -772,9 +769,7 @@ void SkScalerContext_Windows::generateAdvance(SkGlyph* glyph) {
 
     SkVector vecs[1] = { { advanceX, 0 } };
     SkMatrix mat;
-    mat.setAll(fRec.fPost2x2[0][0], fRec.fPost2x2[0][1], 0,
-               fRec.fPost2x2[1][0], fRec.fPost2x2[1][1], 0,
-               0, 0, SkScalarToPersp(SK_Scalar1));
+    fRec.getMatrixFrom2x2(&mat);
     mat.mapVectors(vecs, SK_ARRAY_COUNT(vecs));
 
     glyph->fAdvanceX = SkScalarToFixed(vecs[0].fX);
@@ -977,19 +972,8 @@ static void rgb_to_lcd32(const uint8_t* SK_RESTRICT src, const SkGlyph& glyph,
     }
 }
 
-void SkScalerContext_Windows::generateImage(const SkGlyph& glyph,
-                                            SkMaskGamma::PreBlend* maskPreBlend) {
+void SkScalerContext_Windows::generateImage(const SkGlyph& glyph) {
     SkAutoMutexAcquire ac(gFTMutex);
-
-    //Must be careful not to use these if maskPreBlend == NULL
-    const uint8_t* tableR = NULL;
-    const uint8_t* tableG = NULL;
-    const uint8_t* tableB = NULL;
-    if (maskPreBlend) {
-        tableR = maskPreBlend->fR;
-        tableG = maskPreBlend->fG;
-        tableB = maskPreBlend->fB;
-    }
 
     const bool isBW = SkMask::kBW_Format == fRec.fMaskFormat;
     const bool isAA = !isLCD(fRec);
@@ -1008,23 +992,23 @@ void SkScalerContext_Windows::generateImage(const SkGlyph& glyph,
     if (isBW) {
         bilevel_to_bw(src, glyph);
     } else if (isAA) {
-        if (maskPreBlend) {
-            rgb_to_a8<true>(src, glyph, tableG);
+        if (fPreBlend.isApplicable()) {
+            rgb_to_a8<true>(src, glyph, fPreBlend.fG);
         } else {
-            rgb_to_a8<false>(src, glyph, tableG);
+            rgb_to_a8<false>(src, glyph, fPreBlend.fG);
         }
     } else if (SkMask::kLCD16_Format == glyph.fMaskFormat) {
-        if (maskPreBlend) {
-            rgb_to_lcd16<true>(src, glyph, tableR, tableG, tableB);
+        if (fPreBlend.isApplicable()) {
+            rgb_to_lcd16<true>(src, glyph, fPreBlend.fR, fPreBlend.fG, fPreBlend.fB);
         } else {
-            rgb_to_lcd16<false>(src, glyph, tableR, tableG, tableB);
+            rgb_to_lcd16<false>(src, glyph, fPreBlend.fR, fPreBlend.fG, fPreBlend.fB);
         }
     } else {
         SkASSERT(SkMask::kLCD32_Format == glyph.fMaskFormat);
-        if (maskPreBlend) {
-            rgb_to_lcd32<true>(src, glyph, tableR, tableG, tableB);
+        if (fPreBlend.isApplicable()) {
+            rgb_to_lcd32<true>(src, glyph, fPreBlend.fR, fPreBlend.fG, fPreBlend.fB);
         } else {
-            rgb_to_lcd32<true>(src, glyph, tableR, tableG, tableB);
+            rgb_to_lcd32<false>(src, glyph, fPreBlend.fR, fPreBlend.fG, fPreBlend.fB);
         }
     }
 }
@@ -1051,6 +1035,10 @@ void SkScalerContext_Windows::generatePath(const SkGlyph& glyph, SkPath* path) {
                                        FALSE, //rtl
                                        geometryToPath.get()),
          "Could not create glyph outline.");
+
+    SkMatrix mat;
+    fRec.getMatrixFrom2x2(&mat);
+    path->transform(mat);
 }
 
 void SkFontHost::Serialize(const SkTypeface* rawFace, SkWStream* stream) {
@@ -1266,7 +1254,7 @@ SkTypeface* SkFontHost::CreateTypefaceFromFile(const char path[]) {
     return NULL;
 }
 
-void SkFontHost::FilterRec(SkScalerContext::Rec* rec) {
+void SkFontHost::FilterRec(SkScalerContext::Rec* rec, SkTypeface*) {
     unsigned flagsWeDontSupport = SkScalerContext::kDevKernText_Flag |
                                   SkScalerContext::kAutohinting_Flag |
                                   SkScalerContext::kEmbeddedBitmapText_Flag |

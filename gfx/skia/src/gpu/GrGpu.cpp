@@ -23,8 +23,6 @@ static const int INDEX_POOL_IB_COUNT = 4;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-extern void gr_run_unittests();
-
 #define DEBUG_INVAL_BUFFER    0xdeadcafe
 #define DEBUG_INVAL_START_IDX -1
 
@@ -40,10 +38,6 @@ GrGpu::GrGpu()
     , fContextIsDirty(true) {
 
     fClipMaskManager.setGpu(this);
-
-#if GR_DEBUG
-    //gr_run_unittests();
-#endif
 
     fGeomPoolStateStack.push_back();
 #if GR_DEBUG
@@ -126,6 +120,10 @@ void GrGpu::unimpl(const char msg[]) {
 
 GrTexture* GrGpu::createTexture(const GrTextureDesc& desc,
                                 const void* srcData, size_t rowBytes) {
+    if (kUnknown_GrPixelConfig == desc.fConfig) {
+        return NULL;
+    }
+
     this->handleDirtyContext();
     GrTexture* tex = this->onCreateTexture(desc, srcData, rowBytes);
     if (NULL != tex &&
@@ -173,9 +171,9 @@ bool GrGpu::attachStencilBufferToRenderTarget(GrRenderTarget* rt) {
     }
 }
 
-GrTexture* GrGpu::createPlatformTexture(const GrPlatformTextureDesc& desc) {
+GrTexture* GrGpu::wrapBackendTexture(const GrBackendTextureDesc& desc) {
     this->handleDirtyContext();
-    GrTexture* tex = this->onCreatePlatformTexture(desc);
+    GrTexture* tex = this->onWrapBackendTexture(desc);
     if (NULL == tex) {
         return NULL;
     }
@@ -190,9 +188,9 @@ GrTexture* GrGpu::createPlatformTexture(const GrPlatformTextureDesc& desc) {
     }
 }
 
-GrRenderTarget* GrGpu::createPlatformRenderTarget(const GrPlatformRenderTargetDesc& desc) {
+GrRenderTarget* GrGpu::wrapBackendRenderTarget(const GrBackendRenderTargetDesc& desc) {
     this->handleDirtyContext();
-    return this->onCreatePlatformRenderTarget(desc);
+    return this->onWrapBackendRenderTarget(desc);
 }
 
 GrVertexBuffer* GrGpu::createVertexBuffer(uint32_t size, bool dynamic) {
@@ -214,22 +212,15 @@ GrPath* GrGpu::createPath(const SkPath& path) {
 void GrGpu::clear(const GrIRect* rect,
                   GrColor color,
                   GrRenderTarget* renderTarget) {
-    GrRenderTarget* oldRT = NULL;
-    if (NULL != renderTarget &&
-        renderTarget != this->drawState()->getRenderTarget()) {
-        oldRT = this->drawState()->getRenderTarget();
-        this->drawState()->setRenderTarget(renderTarget);
+    GrDrawState::AutoRenderTargetRestore art;
+    if (NULL != renderTarget) {
+        art.set(this->drawState(), renderTarget);
     }
-
     if (NULL == this->getDrawState().getRenderTarget()) {
         return;
     }
     this->handleDirtyContext();
     this->onClear(rect, color);
-
-    if (NULL != oldRT) {
-        this->drawState()->setRenderTarget(oldRT);
-    }
 }
 
 void GrGpu::forceRenderTargetFlush() {
@@ -310,14 +301,14 @@ const GrVertexBuffer* GrGpu::getUnitSquareVertexBuffer() const {
 
         static const GrPoint DATA[] = {
             { 0,            0 },
-            { GR_Scalar1,   0 },
-            { GR_Scalar1,   GR_Scalar1 },
-            { 0,            GR_Scalar1 }
+            { SK_Scalar1,   0 },
+            { SK_Scalar1,   SK_Scalar1 },
+            { 0,            SK_Scalar1 }
 #if 0
             GrPoint(0,         0),
-            GrPoint(GR_Scalar1,0),
-            GrPoint(GR_Scalar1,GR_Scalar1),
-            GrPoint(0,         GR_Scalar1)
+            GrPoint(SK_Scalar1,0),
+            GrPoint(SK_Scalar1,SK_Scalar1),
+            GrPoint(0,         SK_Scalar1)
 #endif
         };
         static const size_t SIZE = sizeof(DATA);
@@ -369,6 +360,8 @@ void GrGpu::geometrySourceWillPush() {
     newState.fPoolStartVertex = DEBUG_INVAL_START_IDX;
     newState.fPoolIndexBuffer = (GrIndexBuffer*)DEBUG_INVAL_BUFFER;
     newState.fPoolStartIndex = DEBUG_INVAL_START_IDX;
+#else
+    (void) newState; // silence compiler warning
 #endif
 }
 
@@ -413,7 +406,7 @@ void GrGpu::onDrawNonIndexed(GrPrimitiveType type,
     this->onGpuDrawNonIndexed(type, sVertex, vertexCount);
 }
 
-void GrGpu::onStencilPath(const GrPath* path, GrPathFill fill) {
+void GrGpu::onStencilPath(const GrPath* path, const SkStrokeRec&, SkPath::FillType fill) {
     this->handleDirtyContext();
 
     // TODO: make this more effecient (don't copy and copy back)

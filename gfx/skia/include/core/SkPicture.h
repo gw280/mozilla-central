@@ -11,7 +11,9 @@
 #define SkPicture_DEFINED
 
 #include "SkRefCnt.h"
+#include "SkSerializationHelpers.h"
 
+class SkBBoxHierarchy;
 class SkBitmap;
 class SkCanvas;
 class SkPicturePlayback;
@@ -38,10 +40,12 @@ public:
     */
     SkPicture(const SkPicture& src);
     /**
-     *  Recreate a picture that was serialized into a stream. If an error occurs
-     *  the picture will be "empty" : width and height == 0
+     *  Recreate a picture that was serialized into a stream. *success is set to
+     *  true if the picture was deserialized successfully and false otherwise.
+     *  decoder is used to decode any SkBitmaps that were encoded into the stream.
      */
-    explicit SkPicture(SkStream*);
+    explicit SkPicture(SkStream*, bool* success = NULL,
+                       SkSerializationHelpers::DecodeBitmap decoder = NULL);
     virtual ~SkPicture();
 
     /**
@@ -112,11 +116,6 @@ public:
     */
     void endRecording();
 
-    /** Returns true if any draw commands have been recorded since the last
-        call to beginRecording.
-    */
-    bool hasRecorded() const;
-
     /** Replays the drawing commands on the specified canvas. This internally
         calls endRecording() if that has not already been called.
         @param surface the canvas receiving the drawing commands.
@@ -137,7 +136,11 @@ public:
     */
     int height() const { return fHeight; }
 
-    void serialize(SkWStream*) const;
+    /**
+     *  Serialize to a stream. If non NULL, encoder will be used to encode
+     *  any bitmaps in the picture.
+     */
+    void serialize(SkWStream*, SkSerializationHelpers::EncodeBitmap encoder = NULL) const;
 
     /** Signals that the caller is prematurely done replaying the drawing
         commands. This can be called from a canvas virtual while the picture
@@ -145,10 +148,31 @@ public:
     */
     void abortPlayback();
 
-private:
-    int fWidth, fHeight;
-    SkPictureRecord* fRecord;
+protected:
+    // V2 : adds SkPixelRef's generation ID.
+    // V3 : PictInfo tag at beginning, and EOF tag at the end
+    // V4 : move SkPictInfo to be the header
+    // V5 : don't read/write FunctionPtr on cross-process (we can detect that)
+    // V6 : added serialization of SkPath's bounds (and packed its flags tighter)
+    // V7 : changed drawBitmapRect(IRect) to drawBitmapRectToRect(Rect)
+    // V8 : Add an option for encoding bitmaps
+    // V9 : Allow the reader and writer of an SKP disagree on whether to support
+    //      SK_SUPPORT_HINTING_SCALE_FACTOR
+    // V10: add drawRRect, drawOval, clipRRect
+    static const uint32_t PICTURE_VERSION = 10;
+
+    // fPlayback, fRecord, fWidth & fHeight are protected to allow derived classes to
+    // install their own SkPicturePlayback-derived players,SkPictureRecord-derived
+    // recorders and set the picture size
     SkPicturePlayback* fPlayback;
+    SkPictureRecord* fRecord;
+    int fWidth, fHeight;
+
+    // For testing. Derived classes may instantiate an alternate
+    // SkBBoxHierarchy implementation
+    virtual SkBBoxHierarchy* createBBoxHierarchy() const;
+
+private:
 
     friend class SkFlatPicture;
     friend class SkPicturePlayback;

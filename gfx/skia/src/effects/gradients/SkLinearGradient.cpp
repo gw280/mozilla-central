@@ -120,34 +120,6 @@ typedef void (*LinearShadeProc)(TileProc proc, SkFixed dx, SkFixed fx,
                                 SkPMColor* dstC, const SkPMColor* cache,
                                 int toggle, int count);
 
-// This function is deprecated, and will be replaced by
-// shadeSpan_linear_vertical_lerp() once Chrome has been weaned off of it.
-void shadeSpan_linear_vertical(TileProc proc, SkFixed dx, SkFixed fx,
-                               SkPMColor* SK_RESTRICT dstC,
-                               const SkPMColor* SK_RESTRICT cache,
-                               int toggle, int count) {
-    if (proc == clamp_tileproc) {
-        // No need to lerp or dither for clamp values
-        if (fx < 0) {
-            sk_memset32(dstC, cache[SkGradientShaderBase::kCache32ClampLower], count);
-            return;
-        } else if (fx > 0xffff) {
-            sk_memset32(dstC, cache[SkGradientShaderBase::kCache32ClampUpper], count);
-            return;
-        }
-    }
-
-    // We're a vertical gradient, so no change in a span.
-    // If colors change sharply across the gradient, dithering is
-    // insufficient (it subsamples the color space) and we need to lerp.
-    unsigned fullIndex = proc(fx);
-    unsigned fi = fullIndex >> (16 - SkGradientShaderBase::kCache32Bits);
-    sk_memset32_dither(dstC,
-            cache[toggle + fi],
-            cache[(toggle ^ SkGradientShaderBase::kDitherStride32) + fi],
-            count);
-}
-
 // Linear interpolation (lerp) is unnecessary if there are no sharp
 // discontinuities in the gradient - which must be true if there are
 // only 2 colors - but it's cheap.
@@ -155,17 +127,6 @@ void shadeSpan_linear_vertical_lerp(TileProc proc, SkFixed dx, SkFixed fx,
                                     SkPMColor* SK_RESTRICT dstC,
                                     const SkPMColor* SK_RESTRICT cache,
                                     int toggle, int count) {
-    if (proc == clamp_tileproc) {
-        // No need to lerp or dither for clamp values
-        if (fx < 0) {
-            sk_memset32(dstC, cache[SkGradientShaderBase::kCache32ClampLower], count);
-            return;
-        } else if (fx > 0xffff) {
-            sk_memset32(dstC, cache[SkGradientShaderBase::kCache32ClampUpper], count);
-            return;
-        }
-    }
-
     // We're a vertical gradient, so no change in a span.
     // If colors change sharply across the gradient, dithering is
     // insufficient (it subsamples the color space) and we need to lerp.
@@ -191,7 +152,10 @@ void shadeSpan_linear_clamp(TileProc proc, SkFixed dx, SkFixed fx,
     range.init(fx, dx, count, 0, SkGradientShaderBase::kGradient32Length);
 
     if ((count = range.fCount0) > 0) {
-        sk_memset32(dstC, cache[SkGradientShaderBase::kCache32ClampLower], count);
+        sk_memset32_dither(dstC,
+            cache[toggle + range.fV0],
+            cache[(toggle ^ SkGradientShaderBase::kDitherStride32) + range.fV0],
+            count);
         dstC += count;
     }
     if ((count = range.fCount1) > 0) {
@@ -210,7 +174,10 @@ void shadeSpan_linear_clamp(TileProc proc, SkFixed dx, SkFixed fx,
         }
     }
     if ((count = range.fCount2) > 0) {
-        sk_memset32(dstC, cache[SkGradientShaderBase::kCache32ClampUpper], count);
+        sk_memset32_dither(dstC,
+            cache[toggle + range.fV1],
+            cache[(toggle ^ SkGradientShaderBase::kDitherStride32) + range.fV1],
+            count);
     }
 }
 
@@ -272,15 +239,7 @@ void SkLinearGradient::shadeSpan(int x, int y, SkPMColor* SK_RESTRICT dstC,
 
         LinearShadeProc shadeProc = shadeSpan_linear_repeat;
         if (SkFixedNearlyZero(dx)) {
-#ifdef SK_SIMPLE_TWOCOLOR_VERTICAL_GRADIENTS
-            if (fColorCount > 2) {
-                shadeProc = shadeSpan_linear_vertical_lerp;
-            } else {
-                shadeProc = shadeSpan_linear_vertical;
-            }
-#else
             shadeProc = shadeSpan_linear_vertical_lerp;
-#endif
         } else if (SkShader::kClamp_TileMode == fTileMode) {
             shadeProc = shadeSpan_linear_clamp;
         } else if (SkShader::kMirror_TileMode == fTileMode) {
@@ -490,28 +449,34 @@ void SkLinearGradient::shadeSpan16(int x, int y,
 
 #if SK_SUPPORT_GPU
 
+#include "GrTBackendEffectFactory.h"
+
 /////////////////////////////////////////////////////////////////////
 
-class GrGLLinearGradient : public GrGLGradientStage {
+class GrGLLinearGradient : public GrGLGradientEffect {
 public:
 
-    GrGLLinearGradient(const GrProgramStageFactory& factory,
-                       const GrCustomStage&)
+    GrGLLinearGradient(const GrBackendEffectFactory& factory,
+                       const GrEffect&)
                        : INHERITED (factory) { }
 
     virtual ~GrGLLinearGradient() { }
 
-    virtual void emitVS(GrGLShaderBuilder* builder,
-                        const char* vertexCoords) SK_OVERRIDE { }
-    virtual void emitFS(GrGLShaderBuilder* builder,
-                        const char* outputColor,
-                        const char* inputColor,
-                        const TextureSamplerArray&) SK_OVERRIDE;
-    static StageKey GenKey(const GrCustomStage& s, const GrGLCaps& caps) { return 0; }
+    virtual void emitCode(GrGLShaderBuilder*,
+                          const GrEffectStage&,
+                          EffectKey,
+                          const char* vertexCoords,
+                          const char* outputColor,
+                          const char* inputColor,
+                          const TextureSamplerArray&) SK_OVERRIDE;
+
+    static EffectKey GenKey(const GrEffectStage& stage, const GrGLCaps&) {
+        return GenMatrixKey(stage);
+    }
 
 private:
 
-    typedef GrGLGradientStage INHERITED;
+    typedef GrGLGradientEffect INHERITED;
 };
 
 /////////////////////////////////////////////////////////////////////
@@ -519,31 +484,33 @@ private:
 class GrLinearGradient : public GrGradientEffect {
 public:
 
-    GrLinearGradient(GrContext* ctx, const SkLinearGradient& shader,
-                     GrSamplerState* sampler)
-        : INHERITED(ctx, shader, sampler) { }
+    GrLinearGradient(GrContext* ctx,
+                     const SkLinearGradient& shader,
+                     const SkMatrix& matrix,
+                     SkShader::TileMode tm)
+        : INHERITED(ctx, shader, matrix, tm) { }
     virtual ~GrLinearGradient() { }
 
     static const char* Name() { return "Linear Gradient"; }
-    const GrProgramStageFactory& getFactory() const SK_OVERRIDE {
-        return GrTProgramStageFactory<GrLinearGradient>::getInstance();
+    const GrBackendEffectFactory& getFactory() const SK_OVERRIDE {
+        return GrTBackendEffectFactory<GrLinearGradient>::getInstance();
     }
 
-    typedef GrGLLinearGradient GLProgramStage;
+    typedef GrGLLinearGradient GLEffect;
 
 private:
-    GR_DECLARE_CUSTOM_STAGE_TEST;
+    GR_DECLARE_EFFECT_TEST;
 
     typedef GrGradientEffect INHERITED;
 };
 
 /////////////////////////////////////////////////////////////////////
 
-GR_DEFINE_CUSTOM_STAGE_TEST(GrLinearGradient);
+GR_DEFINE_EFFECT_TEST(GrLinearGradient);
 
-GrCustomStage* GrLinearGradient::TestCreate(SkRandom* random,
-                                            GrContext* context,
-                                            GrTexture**) {
+GrEffect* GrLinearGradient::TestCreate(SkRandom* random,
+                                       GrContext* context,
+                                       GrTexture**) {
     SkPoint points[] = {{random->nextUScalar1(), random->nextUScalar1()},
                         {random->nextUScalar1(), random->nextUScalar1()}};
 
@@ -555,39 +522,43 @@ GrCustomStage* GrLinearGradient::TestCreate(SkRandom* random,
     SkAutoTUnref<SkShader> shader(SkGradientShader::CreateLinear(points,
                                                                  colors, stops, colorCount,
                                                                  tm));
-    GrSamplerState sampler;
-    GrCustomStage* stage = shader->asNewCustomStage(context, &sampler);
-    GrAssert(NULL != stage);
-    return stage;
+    SkPaint paint;
+    return shader->asNewEffect(context, paint);
 }
 
 /////////////////////////////////////////////////////////////////////
 
-void GrGLLinearGradient::emitFS(GrGLShaderBuilder* builder,
-                                const char* outputColor,
-                                const char* inputColor,
-                                const TextureSamplerArray& samplers) {
+void GrGLLinearGradient::emitCode(GrGLShaderBuilder* builder,
+                                  const GrEffectStage& stage,
+                                  EffectKey key,
+                                  const char* vertexCoords,
+                                  const char* outputColor,
+                                  const char* inputColor,
+                                  const TextureSamplerArray& samplers) {
+    this->emitYCoordUniform(builder);
+    const char* coords;
+    this->setupMatrix(builder, key, vertexCoords, &coords);
     SkString t;
-    t.printf("%s.x", builder->defaultTexCoordsName());
+    t.append(coords);
+    t.append(".x");
     this->emitColorLookup(builder, t.c_str(), outputColor, inputColor, samplers[0]);
 }
 
 /////////////////////////////////////////////////////////////////////
 
-GrCustomStage* SkLinearGradient::asNewCustomStage(GrContext* context,
-                                                  GrSamplerState* sampler) const {
-    SkASSERT(NULL != context && NULL != sampler);
-    sampler->matrix()->preConcat(fPtsToUnit);
-    sampler->textureParams()->setTileModeX(fTileMode);
-    sampler->textureParams()->setTileModeY(kClamp_TileMode);
-    sampler->textureParams()->setBilerp(true);
-    return SkNEW_ARGS(GrLinearGradient, (context, *this, sampler));
+GrEffect* SkLinearGradient::asNewEffect(GrContext* context, const SkPaint&) const {
+    SkASSERT(NULL != context);
+    SkMatrix matrix;
+    if (!this->getLocalMatrix().invert(&matrix)) {
+        return false;
+    }
+    matrix.postConcat(fPtsToUnit);
+    return SkNEW_ARGS(GrLinearGradient, (context, *this, matrix, fTileMode));
 }
 
 #else
 
-GrCustomStage* SkLinearGradient::asNewCustomStage(GrContext* context,
-                                                  GrSamplerState* sampler) const {
+GrEffect* SkLinearGradient::asNewEffect(GrContext* context, const SkPaint&) const {
     SkDEBUGFAIL("Should not call in GPU-less build");
     return NULL;
 }

@@ -75,9 +75,9 @@ void GrInOrderDrawBuffer::resetDrawTracking() {
 }
 
 void GrInOrderDrawBuffer::drawRect(const GrRect& rect,
-                                   const GrMatrix* matrix,
+                                   const SkMatrix* matrix,
                                    const GrRect* srcRects[],
-                                   const GrMatrix* srcMatrices[]) {
+                                   const SkMatrix* srcMatrices[]) {
 
     GrAssert(!(NULL == fQuadIndexBuffer && fCurrQuad));
     GrAssert(!(fDraws.empty() && fCurrQuad));
@@ -91,16 +91,46 @@ void GrInOrderDrawBuffer::drawRect(const GrRect& rect,
 
         bool appendToPreviousDraw = false;
         GrVertexLayout layout = GetRectVertexLayout(srcRects);
+
+        // Batching across colors means we move the draw color into the
+        // rect's vertex colors to allow greater batching (a lot of rects
+        // in a row differing only in color is a common occurence in tables).
+        bool batchAcrossColors = true;
+        if (!this->getCaps().dualSourceBlendingSupport()) {
+            for (int s = 0; s < GrDrawState::kNumStages; ++s) {
+                if (this->getDrawState().isStageEnabled(s)) {
+                    // We disable batching across colors when there is a texture
+                    // present because (by pushing the the color to the vertices)
+                    // Ganesh loses track of the rect's opacity. This, in turn, can
+                    // cause some of the blending optimizations to be disabled. This
+                    // becomes a huge problem on some of the smaller devices where
+                    // shader derivatives and dual source blending aren't supported.
+                    // In those cases paths are often drawn to a texture and then
+                    // drawn as a texture (using this method). Because dual source
+                    // blending is disabled (and the blend optimizations are short
+                    // circuited) some of the more esoteric blend modes can no longer
+                    // be supported.
+                    // TODO: add tracking of batchAcrossColors's opacity
+                    batchAcrossColors = false;
+                    break;
+                }
+            }
+        }
+
+        if (batchAcrossColors) {
+            layout |= kColor_VertexLayoutBit;
+        }
+
         AutoReleaseGeometry geo(this, layout, 4, 0);
         if (!geo.succeeded()) {
             GrPrintf("Failed to get space for vertices!\n");
             return;
         }
-        GrMatrix combinedMatrix = drawState->getViewMatrix();
+        SkMatrix combinedMatrix = drawState->getViewMatrix();
         // We go to device space so that matrix changes allow us to concat
         // rect draws. When the caller has provided explicit source rects
-        // then we don't want to modify the sampler matrices. Otherwise we do
-        // we have to account for the view matrix change in the sampler
+        // then we don't want to modify the stages' matrices. Otherwise
+        // we have to account for the view matrix change in the stage
         // matrices.
         uint32_t explicitCoordMask = 0;
         if (srcRects) {
@@ -110,7 +140,7 @@ void GrInOrderDrawBuffer::drawRect(const GrRect& rect,
                 }
             }
         }
-        GrDrawTarget::AutoDeviceCoordDraw adcd(this, explicitCoordMask);
+        GrDrawState::AutoDeviceCoordDraw adcd(this->drawState(), explicitCoordMask);
         if (!adcd.succeeded()) {
             return;
         }
@@ -118,7 +148,15 @@ void GrInOrderDrawBuffer::drawRect(const GrRect& rect,
             combinedMatrix.preConcat(*matrix);
         }
 
-        SetRectVertices(rect, &combinedMatrix, srcRects, srcMatrices, layout, geo.vertices());
+        SetRectVertices(rect, &combinedMatrix, srcRects, srcMatrices,
+                        this->getDrawState().getColor(), layout, geo.vertices());
+
+        // Now that the paint's color is stored in the vertices set it to
+        // white so that the following code can batch all the rects regardless
+        // of paint color
+        GrDrawState::AutoColorRestore acr(this->drawState(),
+                                          batchAcrossColors ? SK_ColorWHITE
+                                                            : this->getDrawState().getColor());
 
         // we don't want to miss an opportunity to batch rects together
         // simply because the clip has changed if the clip doesn't affect
@@ -144,16 +182,16 @@ void GrInOrderDrawBuffer::drawRect(const GrRect& rect,
                 // conservative test fails.
                 const GrRenderTarget* target = drawState->getRenderTarget();
                 if (0 >= devClipRect.fLeft) {
-                    devClipRect.fLeft = GR_ScalarMin;
+                    devClipRect.fLeft = SK_ScalarMin;
                 }
                 if (target->width() <= devClipRect.fRight) {
-                    devClipRect.fRight = GR_ScalarMax;
+                    devClipRect.fRight = SK_ScalarMax;
                 }
                 if (0 >= devClipRect.top()) {
-                    devClipRect.fTop = GR_ScalarMin;
+                    devClipRect.fTop = SK_ScalarMin;
                 }
                 if (target->height() <= devClipRect.fBottom) {
-                    devClipRect.fBottom = GR_ScalarMax;
+                    devClipRect.fBottom = SK_ScalarMax;
                 }
                 int stride = VertexSize(layout);
                 bool insideClip = true;
@@ -190,7 +228,7 @@ void GrInOrderDrawBuffer::drawRect(const GrRect& rect,
             GeometryPoolState& poolState = fGeoPoolStateStack.back();
 
             appendToPreviousDraw =
-                kDraw_Cmd != fCmds.back() &&
+                kDraw_Cmd == fCmds.back() &&
                 lastDraw.fVertexBuffer == poolState.fPoolVertexBuffer &&
                 (fCurrQuad * 4 + lastDraw.fStartVertex) == poolState.fPoolStartVertex;
 
@@ -262,16 +300,16 @@ void GrInOrderDrawBuffer::drawIndexedInstances(GrPrimitiveType type,
             draw->fVertexBuffer != vertexBuffer) {
 
             draw = this->recordDraw();
-            draw->fIndexBuffer = geomSrc.fIndexBuffer;
-            geomSrc.fIndexBuffer->ref();
+            draw->fPrimitiveType = type;
+            draw->fStartVertex = poolState.fPoolStartVertex;
+            draw->fStartIndex = 0;
+            draw->fVertexCount = 0;
+            draw->fIndexCount = 0;
+            draw->fVertexLayout = geomSrc.fVertexLayout;
             draw->fVertexBuffer = vertexBuffer;
             vertexBuffer->ref();
-            draw->fPrimitiveType = type;
-            draw->fStartIndex = 0;
-            draw->fIndexCount = 0;
-            draw->fStartVertex = poolState.fPoolStartVertex;
-            draw->fVertexCount = 0;
-            draw->fVertexLayout = geomSrc.fVertexLayout;
+            draw->fIndexBuffer = geomSrc.fIndexBuffer;
+            geomSrc.fIndexBuffer->ref();
         } else {
             GrAssert(!(draw->fIndexCount % indicesPerInstance));
             GrAssert(!(draw->fVertexCount % verticesPerInstance));
@@ -305,15 +343,16 @@ void GrInOrderDrawBuffer::drawIndexedInstances(GrPrimitiveType type,
             if (!instancesToConcat) {
                 int startVertex = draw->fStartVertex + draw->fVertexCount;
                 draw = this->recordDraw();
-                draw->fIndexBuffer = geomSrc.fIndexBuffer;
-                geomSrc.fIndexBuffer->ref();
+                draw->fPrimitiveType = type;
+                draw->fStartVertex = startVertex;
+                draw->fStartIndex = 0;
+                draw->fVertexCount = 0;
+                draw->fIndexCount = 0;
+                draw->fVertexLayout = geomSrc.fVertexLayout;
                 draw->fVertexBuffer = vertexBuffer;
                 vertexBuffer->ref();
-                draw->fPrimitiveType = type;
-                draw->fStartIndex = 0;
-                draw->fStartVertex = startVertex;
-                draw->fVertexCount = 0;
-                draw->fVertexLayout = geomSrc.fVertexLayout;
+                draw->fIndexBuffer = geomSrc.fIndexBuffer;
+                geomSrc.fIndexBuffer->ref();
                 instancesToConcat = maxInstancesPerDraw;
             }
             draw->fVertexCount += instancesToConcat * verticesPerInstance;
@@ -449,7 +488,10 @@ void GrInOrderDrawBuffer::onDrawNonIndexed(GrPrimitiveType primitiveType,
     draw->fIndexBuffer = NULL;
 }
 
-void GrInOrderDrawBuffer::onStencilPath(const GrPath* path, GrPathFill fill) {
+GrInOrderDrawBuffer::StencilPath::StencilPath() : fStroke(SkStrokeRec::kFill_InitStyle) {}
+
+void GrInOrderDrawBuffer::onStencilPath(const GrPath* path, const SkStrokeRec& stroke,
+                                        SkPath::FillType fill) {
     if (this->needsNewClip()) {
         this->recordClip();
     }
@@ -461,6 +503,7 @@ void GrInOrderDrawBuffer::onStencilPath(const GrPath* path, GrPathFill fill) {
     sp->fPath.reset(path);
     path->ref();
     sp->fFill = fill;
+    sp->fStroke = stroke;
 }
 
 void GrInOrderDrawBuffer::clear(const GrIRect* rect,
@@ -508,15 +551,9 @@ void GrInOrderDrawBuffer::reset() {
     fClipSet = true;
 
     this->resetDrawTracking();
-
-    // we start off with a default clip and state so that we don't have
-    // to do count checks on fClips, fStates, or fCmds before checking their
-    // last entry.
-    this->recordDefaultState();
-    this->recordDefaultClip();
 }
 
-bool GrInOrderDrawBuffer::playback(GrDrawTarget* target) {
+bool GrInOrderDrawBuffer::flushTo(GrDrawTarget* target) {
     GrAssert(kReserved_GeometrySrcType != this->getGeomSrc().fVertexSrc);
     GrAssert(kReserved_GeometrySrcType != this->getGeomSrc().fIndexSrc);
 
@@ -524,10 +561,7 @@ bool GrInOrderDrawBuffer::playback(GrDrawTarget* target) {
     GrAssert(target != this); // not considered and why?
 
     int numCmds = fCmds.count();
-    GrAssert(numCmds >= 2);
-    if (2 == numCmds) {
-        GrAssert(kSetState_Cmd == fCmds[0]);
-        GrAssert(kSetClip_Cmd  == fCmds[1]);
+    if (0 == numCmds) {
         return false;
     }
 
@@ -572,7 +606,7 @@ bool GrInOrderDrawBuffer::playback(GrDrawTarget* target) {
             }
             case kStencilPath_Cmd: {
                 const StencilPath& sp = fStencilPaths[currStencilPath];
-                target->stencilPath(sp.fPath.get(), sp.fFill);
+                target->stencilPath(sp.fPath.get(), sp.fStroke, sp.fFill);
                 ++currStencilPath;
                 break;
             }
@@ -603,6 +637,7 @@ bool GrInOrderDrawBuffer::playback(GrDrawTarget* target) {
 
     target->setDrawState(prevDrawState);
     prevDrawState->unref();
+    this->reset();
     return true;
 }
 
@@ -825,15 +860,15 @@ void GrInOrderDrawBuffer::geometrySourceWillPop(
 }
 
 bool GrInOrderDrawBuffer::needsNewState() const {
-    // we should have recorded a default state in reset()
-    GrAssert(!fStates.empty());
-    return fStates.back() != this->getDrawState();
+    return fStates.empty() || fStates.back() != this->getDrawState();
 }
 
 bool GrInOrderDrawBuffer::needsNewClip() const {
-   if (this->getDrawState().isClipState()) {
+    GrAssert(fClips.count() == fClipOrigins.count());
+    if (this->getDrawState().isClipState()) {
        if (fClipSet &&
-           (fClips.back() != *fClip->fClipStack ||
+           (fClips.empty() ||
+            fClips.back() != *fClip->fClipStack ||
             fClipOrigins.back() != fClip->fOrigin)) {
            return true;
        }

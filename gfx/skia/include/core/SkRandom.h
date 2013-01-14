@@ -40,6 +40,21 @@ public:
     */
     S16CPU nextS16() { return this->nextS() >> 16; }
 
+    /**
+     *  Returns value [0...1) as a float
+     */
+    float nextF() {
+        // const is 1 / (2^32 - 1)
+        return (float)(this->nextU() * 2.32830644e-10);
+    }
+
+    /**
+     *  Returns value [min...max) as a float
+     */
+    float nextRangeF(float min, float max) {
+        return min + this->nextF() * (max - min);
+    }
+
     /** Return the next pseudo random number, as an unsigned value of
         at most bitCount bits.
         @param bitCount The maximum number of bits to be returned
@@ -84,7 +99,7 @@ public:
         in the range [min..max).
     */
     SkScalar nextRangeScalar(SkScalar min, SkScalar max) {
-        return SkScalarMul(this->nextSScalar1(), (max - min)) + min;
+        return SkScalarMul(this->nextUScalar1(), (max - min)) + min;
     }
 
     /** Return the next pseudo random number expressed as a SkScalar
@@ -96,12 +111,25 @@ public:
     */
     bool nextBool() { return this->nextU() >= 0x80000000; }
 
+    /** A biased version of nextBool().
+     */
+    bool nextBiasedBool(SkScalar fractionTrue) {
+        SkASSERT(fractionTrue >= 0 && fractionTrue <= SK_Scalar1);
+        return this->nextUScalar1() <= fractionTrue;
+    }
+
     /** Return the next pseudo random number as a signed 64bit value.
     */
     void next64(Sk64* a) {
         SkASSERT(a);
         a->set(this->nextS(), this->nextU());
     }
+
+    /**
+     *  Return the current seed. This allows the caller to later reset to the
+     *  same seed (using setSeed) so it can generate the same sequence.
+     */
+    int32_t getSeed() const { return fSeed; }
 
     /** Set the seed of the random object. The seed is initialized to 0 when the
         object is first created, and is updated each time the next pseudo random

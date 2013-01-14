@@ -60,12 +60,12 @@ SkEmbossMaskFilter::SkEmbossMaskFilter(const Light& light, SkScalar blurRadius)
     normalize(fLight.fDirection);
 }
 
-SkMask::Format SkEmbossMaskFilter::getFormat() {
+SkMask::Format SkEmbossMaskFilter::getFormat() const {
     return SkMask::k3D_Format;
 }
 
 bool SkEmbossMaskFilter::filterMask(SkMask* dst, const SkMask& src,
-                                    const SkMatrix& matrix, SkIPoint* margin) {
+                            const SkMatrix& matrix, SkIPoint* margin) const {
     SkScalar radius = matrix.mapRadius(fBlurRadius);
 
     if (!SkBlurMask::Blur(dst, src, radius, SkBlurMask::kInner_Style,
@@ -131,5 +131,3 @@ void SkEmbossMaskFilter::flatten(SkFlattenableWriteBuffer& buffer) const {
     buffer.writeByteArray(&tmpLight, sizeof(tmpLight));
     buffer.writeScalar(fBlurRadius);
 }
-
-SK_DEFINE_FLATTENABLE_REGISTRAR(SkEmbossMaskFilter)

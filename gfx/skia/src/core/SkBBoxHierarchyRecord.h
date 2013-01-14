@@ -18,7 +18,8 @@
 class SkBBoxHierarchyRecord : public SkBBoxRecord {
 public:
     /** This will take a ref of h */
-    SkBBoxHierarchyRecord(uint32_t recordFlags, SkBBoxHierarchy* h);
+    SkBBoxHierarchyRecord(uint32_t recordFlags, SkBBoxHierarchy* h,
+                          SkDevice*);
 
     virtual void handleBBox(const SkRect& bounds) SK_OVERRIDE;
 
@@ -42,6 +43,9 @@ public:
     virtual bool clipPath(const SkPath& path,
                           SkRegion::Op op = SkRegion::kIntersect_Op,
                           bool doAntiAlias = false) SK_OVERRIDE;
+    virtual bool clipRRect(const SkRRect& rrect,
+                           SkRegion::Op op = SkRegion::kIntersect_Op,
+                           bool doAntiAlias = false) SK_OVERRIDE;
 
 private:
     typedef SkBBoxRecord INHERITED;

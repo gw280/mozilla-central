@@ -17,6 +17,7 @@
 #include "GrTextStrike.h"
 #include "GrTextStrike_impl.h"
 #include "SkPath.h"
+#include "SkStrokeRec.h"
 
 enum {
     kGlyphMaskStage = GrPaint::kTotalStages,
@@ -29,30 +30,29 @@ void GrTextContext::flushGlyphs() {
     GrDrawState* drawState = fDrawTarget->drawState();
     if (fCurrVertex > 0) {
         // setup our sampler state for our text texture/atlas
-        drawState->sampler(kGlyphMaskStage)->reset(SkShader::kRepeat_TileMode,
-                                                   !fExtMatrix.isIdentity());
+        drawState->stage(kGlyphMaskStage)->reset();
 
         GrAssert(GrIsALIGN4(fCurrVertex));
         GrAssert(fCurrTexture);
-        drawState->createTextureEffect(kGlyphMaskStage, fCurrTexture);
+        GrTextureParams params(SkShader::kRepeat_TileMode, false);
+        drawState->createTextureEffect(kGlyphMaskStage, fCurrTexture, SkMatrix::I(), params);
 
         if (!GrPixelConfigIsAlphaOnly(fCurrTexture->config())) {
-            if (kOne_GrBlendCoeff != fPaint.fSrcBlendCoeff ||
-                kISA_GrBlendCoeff != fPaint.fDstBlendCoeff ||
-                fPaint.hasTexture()) {
+            if (kOne_GrBlendCoeff != fPaint.getSrcBlendCoeff() ||
+                kISA_GrBlendCoeff != fPaint.getDstBlendCoeff() ||
+                fPaint.hasColorStage()) {
                 GrPrintf("LCD Text will not draw correctly.\n");
             }
             // setup blend so that we get mask * paintColor + (1-mask)*dstColor
-            drawState->setBlendConstant(fPaint.fColor);
+            drawState->setBlendConstant(fPaint.getColor());
             drawState->setBlendFunc(kConstC_GrBlendCoeff, kISC_GrBlendCoeff);
             // don't modulate by the paint's color in the frag since we're
             // already doing it via the blend const.
             drawState->setColor(0xffffffff);
         } else {
             // set back to normal in case we took LCD path previously.
-            drawState->setBlendFunc(fPaint.fSrcBlendCoeff,
-                                    fPaint.fDstBlendCoeff);
-            drawState->setColor(fPaint.fColor);
+            drawState->setBlendFunc(fPaint.getSrcBlendCoeff(), fPaint.getDstBlendCoeff());
+            drawState->setColor(fPaint.getColor());
         }
 
         int nGlyphs = fCurrVertex / 4;
@@ -70,20 +70,12 @@ void GrTextContext::flushGlyphs() {
     fDrawTarget = NULL;
 }
 
-GrTextContext::GrTextContext(GrContext* context,
-                             const GrPaint& paint,
-                             const GrMatrix* extMatrix) : fPaint(paint) {
+GrTextContext::GrTextContext(GrContext* context, const GrPaint& paint) : fPaint(paint) {
     fContext = context;
     fStrike = NULL;
 
     fCurrTexture = NULL;
     fCurrVertex = 0;
-
-    if (NULL != extMatrix) {
-        fExtMatrix = *extMatrix;
-    } else {
-        fExtMatrix.reset();
-    }
 
     const GrClipData* clipData = context->getClip();
 
@@ -95,47 +87,9 @@ GrTextContext::GrTextContext(GrContext* context,
                                      context->getRenderTarget()->height(),
                                      &devConservativeBound);
 
-    if (!fExtMatrix.isIdentity()) {
-        GrMatrix inverse;
-        if (fExtMatrix.invert(&inverse)) {
-            inverse.mapRect(&devConservativeBound);
-        }
-    }
-
     devConservativeBound.roundOut(&fClipRect);
 
-    // save the context's original matrix off and restore in destructor
-    // this must be done before getTextTarget.
-    fOrigViewMatrix = fContext->getMatrix();
-    fContext->setMatrix(fExtMatrix);
-
-    /*
-     We need to call preConcatMatrix with our viewmatrix's inverse, for each
-     texture and mask in the paint. However, computing the inverse can be
-     expensive, and its possible we may not have any textures or masks, so these
-     two loops are written such that we only compute the inverse (once) if we
-     need it. We do this on our copy of the paint rather than directly on the
-     draw target because we re-provide the paint to the context when we have
-     to flush our glyphs or draw a glyph as a path midstream.
-    */
-    bool invVMComputed = false;
-    GrMatrix invVM;
-    for (int t = 0; t < GrPaint::kMaxTextures; ++t) {
-        if (fPaint.isTextureStageEnabled(t)) {
-            if (invVMComputed || fOrigViewMatrix.invert(&invVM)) {
-                invVMComputed = true;
-                fPaint.textureSampler(t)->preConcatMatrix(invVM);
-            }
-        }
-    }
-    for (int m = 0; m < GrPaint::kMaxMasks; ++m) {
-        if (fPaint.isMaskStageEnabled(m)) {
-            if (invVMComputed || fOrigViewMatrix.invert(&invVM)) {
-                invVMComputed = true;
-                fPaint.maskSampler(m)->preConcatMatrix(invVM);
-            }
-        }
-    }
+    fAutoMatrix.setIdentity(fContext, &fPaint);
 
     fDrawTarget = NULL;
 
@@ -152,7 +106,6 @@ GrTextContext::~GrTextContext() {
     if (fDrawTarget) {
         fDrawTarget->drawState()->disableStages();
     }
-    fContext->setMatrix(fOrigViewMatrix);
 }
 
 void GrTextContext::flush() {
@@ -179,8 +132,8 @@ void GrTextContext::drawPackedGlyph(GrGlyph::PackedID packed,
         return;
     }
 
-    vx += GrIntToFixed(glyph->fBounds.fLeft);
-    vy += GrIntToFixed(glyph->fBounds.fTop);
+    vx += SkIntToFixed(glyph->fBounds.fLeft);
+    vy += SkIntToFixed(glyph->fBounds.fTop);
 
     // keep them as ints until we've done the clip-test
     GrFixed width = glyph->fBounds.width();
@@ -191,7 +144,7 @@ void GrTextContext::drawPackedGlyph(GrGlyph::PackedID packed,
         int x = vx >> 16;
         int y = vy >> 16;
         if (fClipRect.quickReject(x, y, x + width, y + height)) {
-//            Gr_clz(3);    // so we can set a break-point in the debugger
+//            SkCLZ(3);    // so we can set a break-point in the debugger
             return;
         }
     }
@@ -221,11 +174,14 @@ void GrTextContext::drawPackedGlyph(GrGlyph::PackedID packed,
             glyph->fPath = path;
         }
 
-        GrPoint translate;
-        translate.set(GrFixedToScalar(vx - GrIntToFixed(glyph->fBounds.fLeft)),
-                      GrFixedToScalar(vy - GrIntToFixed(glyph->fBounds.fTop)));
-        fContext->drawPath(fPaint, *glyph->fPath, kWinding_GrPathFill,
-                           &translate);
+        GrContext::AutoMatrix am;
+        SkMatrix translate;
+        translate.setTranslate(SkFixedToScalar(vx - SkIntToFixed(glyph->fBounds.fLeft)),
+                               SkFixedToScalar(vy - SkIntToFixed(glyph->fBounds.fTop)));
+        GrPaint tmpPaint(fPaint);
+        am.setPreConcat(fContext, translate, &tmpPaint);
+        SkStrokeRec stroke(SkStrokeRec::kFill_InitStyle);
+        fContext->drawPath(tmpPaint, *glyph->fPath, stroke);
         return;
     }
 
@@ -233,8 +189,8 @@ HAS_ATLAS:
     GrAssert(glyph->fAtlas);
 
     // now promote them to fixed
-    width = GrIntToFixed(width);
-    height = GrIntToFixed(height);
+    width = SkIntToFixed(width);
+    height = SkIntToFixed(height);
 
     GrTexture* texture = glyph->fAtlas->texture();
     GrAssert(texture);
@@ -280,8 +236,8 @@ HAS_ATLAS:
         GrAlwaysAssert(success);
     }
 
-    GrFixed tx = GrIntToFixed(glyph->fAtlasLocation.fX);
-    GrFixed ty = GrIntToFixed(glyph->fAtlasLocation.fY);
+    GrFixed tx = SkIntToFixed(glyph->fAtlasLocation.fX);
+    GrFixed ty = SkIntToFixed(glyph->fAtlasLocation.fY);
 
 #if GR_TEXT_SCALAR_IS_USHORT
     int x = vx >> 16;

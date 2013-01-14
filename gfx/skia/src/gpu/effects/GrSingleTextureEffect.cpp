@@ -6,65 +6,122 @@
  */
 
 #include "effects/GrSingleTextureEffect.h"
-#include "gl/GrGLProgramStage.h"
+#include "gl/GrGLEffect.h"
+#include "gl/GrGLEffectMatrix.h"
 #include "gl/GrGLSL.h"
 #include "gl/GrGLTexture.h"
-#include "GrProgramStageFactory.h"
+#include "GrTBackendEffectFactory.h"
 #include "GrTexture.h"
 
-class GrGLSingleTextureEffect : public GrGLProgramStage {
+class GrGLSingleTextureEffect : public GrGLEffect {
 public:
-    GrGLSingleTextureEffect(const GrProgramStageFactory& factory,
-                            const GrCustomStage& stage) : INHERITED (factory) { }
+    GrGLSingleTextureEffect(const GrBackendEffectFactory& factory, const GrEffect&)
+    : INHERITED (factory) {}
 
-    virtual void emitVS(GrGLShaderBuilder* builder,
-                        const char* vertexCoords) SK_OVERRIDE { }
-    virtual void emitFS(GrGLShaderBuilder* builder,
-                        const char* outputColor,
-                        const char* inputColor,
-                        const TextureSamplerArray& samplers) SK_OVERRIDE {
+    virtual void emitCode(GrGLShaderBuilder* builder,
+                          const GrEffectStage&,
+                          EffectKey key,
+                          const char* vertexCoords,
+                          const char* outputColor,
+                          const char* inputColor,
+                          const TextureSamplerArray& samplers) SK_OVERRIDE {
+        const char* coordName;
+        GrSLType coordType = fEffectMatrix.emitCode(builder, key, vertexCoords, &coordName);
         builder->fFSCode.appendf("\t%s = ", outputColor);
-        builder->appendTextureLookupAndModulate(&builder->fFSCode, inputColor, samplers[0]);
+        builder->appendTextureLookupAndModulate(&builder->fFSCode,
+                                                inputColor,
+                                                samplers[0],
+                                                coordName,
+                                                coordType);
         builder->fFSCode.append(";\n");
     }
 
-    static inline StageKey GenKey(const GrCustomStage&, const GrGLCaps&) { return 0; }
+    static inline EffectKey GenKey(const GrEffectStage& stage, const GrGLCaps&) {
+        const GrSingleTextureEffect& ste =
+            static_cast<const GrSingleTextureEffect&>(*stage.getEffect());
+        return GrGLEffectMatrix::GenKey(ste.getMatrix(),
+                                        stage.getCoordChangeMatrix(),
+                                        ste.texture(0));
+    }
+
+    virtual void setData(const GrGLUniformManager& uman, const GrEffectStage& stage) SK_OVERRIDE {
+        const GrSingleTextureEffect& ste =
+            static_cast<const GrSingleTextureEffect&>(*stage.getEffect());
+        fEffectMatrix.setData(uman, ste.getMatrix(), stage.getCoordChangeMatrix(), ste.texture(0));
+    }
 
 private:
-
-    typedef GrGLProgramStage INHERITED;
+    GrGLEffectMatrix fEffectMatrix;
+    typedef GrGLEffect INHERITED;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
 
 GrSingleTextureEffect::GrSingleTextureEffect(GrTexture* texture)
     : fTextureAccess(texture) {
+    fMatrix.reset();
+    this->addTextureAccess(&fTextureAccess);
+}
+
+GrSingleTextureEffect::GrSingleTextureEffect(GrTexture* texture, bool bilerp)
+    : fTextureAccess(texture, bilerp) {
+    fMatrix.reset();
+    this->addTextureAccess(&fTextureAccess);
+}
+
+GrSingleTextureEffect::GrSingleTextureEffect(GrTexture* texture, const GrTextureParams& params)
+    : fTextureAccess(texture, params) {
+    fMatrix.reset();
+    this->addTextureAccess(&fTextureAccess);
+}
+
+GrSingleTextureEffect::GrSingleTextureEffect(GrTexture* texture, const SkMatrix& m)
+    : fTextureAccess(texture)
+    , fMatrix(m) {
+    this->addTextureAccess(&fTextureAccess);
+}
+
+GrSingleTextureEffect::GrSingleTextureEffect(GrTexture* texture, const SkMatrix& m, bool bilerp)
+    : fTextureAccess(texture, bilerp)
+    , fMatrix(m) {
+    this->addTextureAccess(&fTextureAccess);
+}
+
+GrSingleTextureEffect::GrSingleTextureEffect(GrTexture* texture,
+                                             const SkMatrix& m,
+                                             const GrTextureParams& params)
+    : fTextureAccess(texture, params)
+    , fMatrix(m) {
+    this->addTextureAccess(&fTextureAccess);
 }
 
 GrSingleTextureEffect::~GrSingleTextureEffect() {
 }
 
-int GrSingleTextureEffect::numTextures() const {
-    return 1;
+void GrSingleTextureEffect::getConstantColorComponents(GrColor* color, uint32_t* validFlags) const {
+    // If the input alpha is 0xff and the texture has no alpha channel, then the output alpha is
+    // 0xff
+    if ((*validFlags & kA_ValidComponentFlag) && 0xFF == GrColorUnpackA(*color) &&
+        GrPixelConfigIsOpaque(fTextureAccess.getTexture()->config())) {
+        *validFlags = kA_ValidComponentFlag;
+    } else {
+        *validFlags = 0;
+    }
 }
 
-const GrTextureAccess& GrSingleTextureEffect::textureAccess(int index) const {
-    GrAssert(0 == index);
-    return fTextureAccess;
-}
-
-const GrProgramStageFactory& GrSingleTextureEffect::getFactory() const {
-    return GrTProgramStageFactory<GrSingleTextureEffect>::getInstance();
+const GrBackendEffectFactory& GrSingleTextureEffect::getFactory() const {
+    return GrTBackendEffectFactory<GrSingleTextureEffect>::getInstance();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-GR_DEFINE_CUSTOM_STAGE_TEST(GrSingleTextureEffect);
+GR_DEFINE_EFFECT_TEST(GrSingleTextureEffect);
 
-GrCustomStage* GrSingleTextureEffect::TestCreate(SkRandom* random,
-                                                 GrContext* context,
-                                                 GrTexture* textures[]) {
-    int texIdx = random->nextBool() ? GrCustomStageUnitTest::kSkiaPMTextureIdx :
-                                      GrCustomStageUnitTest::kAlphaTextureIdx;
-    return SkNEW_ARGS(GrSingleTextureEffect, (textures[texIdx]));
+GrEffect* GrSingleTextureEffect::TestCreate(SkRandom* random,
+                                            GrContext* context,
+                                            GrTexture* textures[]) {
+    int texIdx = random->nextBool() ? GrEffectUnitTest::kSkiaPMTextureIdx :
+                                      GrEffectUnitTest::kAlphaTextureIdx;
+    const SkMatrix& matrix = GrEffectUnitTest::TestMatrix(random);
+    return SkNEW_ARGS(GrSingleTextureEffect, (textures[texIdx], matrix));
 }

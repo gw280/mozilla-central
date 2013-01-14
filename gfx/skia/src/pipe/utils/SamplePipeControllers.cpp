@@ -51,7 +51,7 @@ TiledPipeController::TiledPipeController(const SkBitmap& bitmap,
         rect.setLTRB(0, top, bitmap.width(), bottom);
         top = bottom;
 
-        bool extracted = bitmap.extractSubset(&fBitmaps[i], rect);
+        SkDEBUGCODE(bool extracted = )bitmap.extractSubset(&fBitmaps[i], rect);
         SkASSERT(extracted);
         SkDevice* device = new SkDevice(fBitmaps[i]);
         SkCanvas* canvas = new SkCanvas(device);
@@ -103,7 +103,7 @@ void ThreadSafePipeController::notifyWritten(size_t bytes) {
     fBytesWritten += bytes;
 }
 
-void ThreadSafePipeController::playback(SkCanvas* target) {
+void ThreadSafePipeController::draw(SkCanvas* target) {
     SkGPipeReader reader(target);
     for (int currentBlock = 0; currentBlock < fBlockList.count(); currentBlock++ ) {
         reader.playback(fBlockList[currentBlock].fBlock, fBlockList[currentBlock].fBytes);

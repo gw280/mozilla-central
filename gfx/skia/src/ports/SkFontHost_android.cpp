@@ -1,23 +1,12 @@
-/* libs/graphics/ports/SkFontHost_android.cpp
-**
-** Copyright 2006, The Android Open Source Project
-**
-** Licensed under the Apache License, Version 2.0 (the "License");
-** you may not use this file except in compliance with the License.
-** You may obtain a copy of the License at
-**
-**     http://www.apache.org/licenses/LICENSE-2.0
-**
-** Unless required by applicable law or agreed to in writing, software
-** distributed under the License is distributed on an "AS IS" BASIS,
-** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-** See the License for the specific language governing permissions and
-** limitations under the License.
-*/
+/*
+ * Copyright 2006 The Android Open Source Project
+ *
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file.
+ */
 
 #include "SkFontHost.h"
 #include "SkFontDescriptor.h"
-#include "SkGlyphCache.h"
 #include "SkGraphics.h"
 #include "SkDescriptor.h"
 #include "SkMMapStream.h"
@@ -31,6 +20,10 @@
 
 #ifndef SK_FONT_FILE_PREFIX
     #define SK_FONT_FILE_PREFIX          "/fonts/"
+#endif
+
+#ifndef SK_DEBUG_FONTS
+    #define SK_DEBUG_FONTS 0
 #endif
 
 // For test only.
@@ -543,6 +536,7 @@ static void load_font_info() {
                             malloc((names.count() + 1) * sizeof(char*));
                     if (nameList == NULL) {
                         // shouldn't get here
+                        SkDEBUGFAIL("Failed to allocate nameList");
                         break;
                     }
                     if (gDefaultNames == NULL) {
@@ -568,11 +562,16 @@ static void load_font_info() {
         SkDEBUGFAIL("No system fonts were found");
         gNumSystemFonts = 0;
     }
-    SkDEBUGF(("---- We have %d system fonts", gNumSystemFonts));
+
+#if SK_DEBUG_FONTS
+    SkDebugf("---- We have %d system fonts", gNumSystemFonts);
+#endif
     for (size_t i = 0; i < gNumSystemFonts; ++i) {
         gSystemFonts[i].fFileName = fontInfo[i].fFileName;
         gSystemFonts[i].fNames = fontInfo[i].fNames;
-        SkDEBUGF(("---- gSystemFonts[%d] fileName=%s", i, fontInfo[i].fFileName));
+#if SK_DEBUG_FONTS
+        SkDebugf("---- gSystemFonts[%d] fileName=%s", i, fontInfo[i].fFileName);
+#endif
     }
     fontFamilies.deleteAll();
 }
@@ -593,7 +592,7 @@ static void init_system_fonts() {
 
     load_font_info();
 
-    const FontInitRec* rec = gSystemFonts;
+    FontInitRec* rec = gSystemFonts;
     SkTypeface* firstInFamily = NULL;
     int fallbackCount = 0;
 
@@ -625,16 +624,30 @@ static void init_system_fonts() {
                                      rec[i].fFileName,
                                      isFixedWidth) // filename
                                     );
-
-        SkDEBUGF(("---- SkTypeface[%d] %s fontID %d",
-                  i, rec[i].fFileName, tf->uniqueID()));
+#if SK_DEBUG_FONTS
+        SkDebugf("---- SkTypeface[%d] %s fontID %d",
+                  i, rec[i].fFileName, tf->uniqueID());
+#endif
 
         if (rec[i].fNames != NULL) {
             // see if this is one of our fallback fonts
             if (rec[i].fNames == gFBNames) {
-                SkDEBUGF(("---- adding %s as fallback[%d] fontID %d",
-                          rec[i].fFileName, fallbackCount, tf->uniqueID()));
+#if SK_DEBUG_FONTS
+                SkDebugf("---- adding %s as fallback[%d] fontID %d",
+                          rec[i].fFileName, fallbackCount, tf->uniqueID());
+#endif
                 gFallbackFonts[fallbackCount++] = tf->uniqueID();
+
+                // Use the font file name as the name of the typeface.
+                const char **nameList = (const char**)malloc(2 * sizeof(char*));
+                if (nameList == NULL) {
+                    // shouldn't get here
+                    SkDEBUGFAIL("Failed to allocate nameList");
+                    break;
+                }
+                nameList[0] = rec[i].fFileName;
+                nameList[1] = NULL;
+                rec[i].fNames = nameList;
             }
 
             firstInFamily = tf;
@@ -704,10 +717,11 @@ static void reload_fallback_fonts() {
 
                 size_t uniqueID = find_uniqueID(family->fFileNames[j]);
                 SkASSERT(uniqueID != 0);
-                SkDEBUGF(("---- reload %s as fallback[%d] fontID %d oldFontID %d",
+#if SK_DEBUG_FONTS
+                SkDebugf("---- reload %s as fallback[%d] fontID %d oldFontID %d",
                           family->fFileNames[j], fallbackCount, uniqueID,
-                          gFallbackFonts[fallbackCount]));
-
+                          gFallbackFonts[fallbackCount]);
+#endif
                 gFallbackFonts[fallbackCount++] = uniqueID;
                 break;  // The fallback set contains only the first font of each family
             }
@@ -869,6 +883,13 @@ size_t SkFontHost::GetFileName(SkFontID fontID, char path[], size_t length,
 }
 
 SkFontID SkFontHost::NextLogicalFont(SkFontID currFontID, SkFontID origFontID) {
+#ifdef SK_BUILD_FOR_ANDROID_NDK
+    // Skia does not support font fallback for ndk applications in order to
+    // enable clients such as WebKit to customize their font selection.
+    // Clients can use GetFallbackFamilyNameForChar() to get the fallback
+    // font for individual characters.
+    return 0;
+#else
     SkAutoMutexAcquire  ac(gFamilyHeadAndNameListMutex);
 
     load_system_fonts();
@@ -904,6 +925,7 @@ SkFontID SkFontHost::NextLogicalFont(SkFontID currFontID, SkFontID origFontID) {
     // i.e. gFallbackFonts[0] != 0.
     const SkTypeface* firstTypeface = find_from_uniqueID(list[0]);
     return find_typeface(firstTypeface, origTypeface->style())->uniqueID();
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -912,10 +934,6 @@ SkTypeface* SkFontHost::CreateTypefaceFromStream(SkStream* stream) {
     if (NULL == stream || stream->getLength() <= 0) {
         return NULL;
     }
-
-    // Make sure system fonts are loaded first to comply with the assumption
-    // that the font's uniqueID can be found using the find_uniqueID method.
-    load_system_fonts();
 
     bool isFixedWidth;
     SkTypeface::Style style;
@@ -978,27 +996,40 @@ static const int gFBScriptInfoCount = sizeof(gFBScriptInfo) / sizeof(FBScriptInf
 SK_COMPILE_ASSERT(gFBScriptInfoCount == kFallbackScriptNumber, FBScript_count_mismatch);
 
 // this function can't be called if the gFamilyHeadAndNameListMutex is already locked
-static SkFontID findFontIDForChar(SkUnichar uni, SkTypeface::Style style) {
-    gFamilyHeadAndNameListMutex.acquire();
-    SkTypeface* face = find_best_face(gDefaultFamily, style);
-    gFamilyHeadAndNameListMutex.release();
-    if (!face) {
-        return 0;
-    }
-
+static bool typefaceContainsChar(SkTypeface* face, SkUnichar uni) {
     SkPaint paint;
     paint.setTypeface(face);
     paint.setTextEncoding(SkPaint::kUTF32_TextEncoding);
 
-    SkAutoGlyphCache autoCache(paint, NULL);
-    SkGlyphCache*    cache = autoCache.getCache();
-    SkFontID         fontID = 0;
+    uint16_t glyphID;
+    paint.textToGlyphs(&uni, sizeof(uni), &glyphID);
+    return glyphID != 0;
+}
 
-    SkScalerContext* ctx = cache->getScalerContext();
-    if (ctx) {
-        return ctx->findTypefaceIdForChar(uni);
+// this function can't be called if the gFamilyHeadAndNameListMutex is already locked
+static SkTypeface* findFallbackTypefaceForChar(SkUnichar uni) {
+    SkASSERT(gFallbackFonts);
+    const uint32_t* list = gFallbackFonts;
+    for (int i = 0; list[i] != 0; i++) {
+        SkTypeface* face;
+        {
+            SkAutoMutexAcquire  ac(gFamilyHeadAndNameListMutex);
+            face = find_from_uniqueID(list[i]);
+        }
+        if (typefaceContainsChar(face, uni)) {
+            return face;
+        }
     }
     return 0;
+}
+
+// this function can't be called if the gFamilyHeadAndNameListMutex is already locked
+static SkFontID findFallbackFontIDForChar(SkUnichar uni, SkTypeface::Style style) {
+    const SkTypeface* tf = findFallbackTypefaceForChar(uni);
+    if (!tf) {
+        return 0;
+    }
+    return find_typeface(tf, style)->uniqueID();
 }
 
 // this function can't be called if the gFamilyHeadAndNameListMutex is already locked
@@ -1017,8 +1048,10 @@ static void initFBScriptInfo() {
         // selects the best available style for the desired font. However, if
         // bold is requested and no bold font exists for the typeface containing
         // the character the next best style is chosen (e.g. normal).
-        scriptInfo.fFontID = findFontIDForChar(scriptInfo.fChar, scriptInfo.fStyle);
-        SkDEBUGF(("gFBScriptInfo[%s] --> %d", scriptInfo.fScriptID, scriptInfo.fFontID));
+        scriptInfo.fFontID = findFallbackFontIDForChar(scriptInfo.fChar, scriptInfo.fStyle);
+#if SK_DEBUG_FONTS
+        SkDebugf("gFBScriptInfo[%s] --> %d", scriptInfo.fScriptID, scriptInfo.fFontID);
+#endif
     }
     // mark the value as initialized so we don't repeat our work unnecessarily
     gFBScriptInitialized = true;
@@ -1067,6 +1100,40 @@ FallbackScripts SkGetFallbackScriptFromID(const char* id) {
         }
     }
     return kFallbackScriptNumber; // Use kFallbackScriptNumber as an invalid value.
+}
+
+SkTypeface* SkCreateFallbackTypefaceForChar(SkUnichar uni,
+                                            SkTypeface::Style style) {
+    {
+        SkAutoMutexAcquire  ac(gFamilyHeadAndNameListMutex);
+        load_system_fonts();
+    }
+
+    SkTypeface* tf = findFallbackTypefaceForChar(uni);
+    if (!tf) {
+        return NULL;
+    }
+    SkAutoMutexAcquire  ac(gFamilyHeadAndNameListMutex);
+    tf = find_typeface(tf, style);
+    // we ref(), since the semantic is to return a new instance
+    tf->ref();
+    return tf;
+}
+
+bool SkGetFallbackFamilyNameForChar(SkUnichar uni, SkString* name) {
+    SkASSERT(name);
+    {
+        SkAutoMutexAcquire  ac(gFamilyHeadAndNameListMutex);
+        load_system_fonts();
+    }
+
+    const SkTypeface* tf = findFallbackTypefaceForChar(uni);
+    if (!tf) {
+        return false;
+    }
+    SkAutoMutexAcquire  ac(gFamilyHeadAndNameListMutex);
+    name->set(find_family_name(tf));
+    return true;
 }
 
 void SkUseTestFontConfigFile(const char* mainconf, const char* fallbackconf,

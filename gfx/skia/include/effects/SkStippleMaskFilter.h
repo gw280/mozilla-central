@@ -11,19 +11,19 @@
 #include "SkMaskFilter.h"
 
 /**
- * Simple MaskFilter that creates a screen door stipple pattern
+ * Simple MaskFilter that creates a screen door stipple pattern.
  */
-class SkStippleMaskFilter : public SkMaskFilter {
+class SK_API SkStippleMaskFilter : public SkMaskFilter {
 public:
     SkStippleMaskFilter() : INHERITED() {
     }
 
     virtual bool filterMask(SkMask* dst, const SkMask& src,
                             const SkMatrix& matrix,
-                            SkIPoint* margin) SK_OVERRIDE;
+                            SkIPoint* margin) const SK_OVERRIDE;
 
     // getFormat is from SkMaskFilter
-    virtual SkMask::Format getFormat() SK_OVERRIDE {
+    virtual SkMask::Format getFormat() const SK_OVERRIDE {
         return SkMask::kA8_Format;
     }
 

@@ -36,6 +36,11 @@ public:
         return fGLContextInfo.glslGeneration();
     }
 
+    // Used by GrGLProgram to bind necessary textures for GrGLEffects.
+    void bindTexture(int unitIdx, const GrTextureParams& params, GrGLTexture* texture);
+
+    bool programUnitTest();
+
     // GrGpu overrides
     virtual GrPixelConfig preferredReadPixelsConfig(GrPixelConfig config)
                                                             const SK_OVERRIDE;
@@ -51,9 +56,6 @@ public:
 
     virtual void abandonResources() SK_OVERRIDE;
 
-    bool programUnitTest();
-
-
 protected:
     // GrGpu overrides
     virtual void onResetContext() SK_OVERRIDE;
@@ -66,10 +68,8 @@ protected:
     virtual GrIndexBuffer* onCreateIndexBuffer(uint32_t size,
                                                bool dynamic) SK_OVERRIDE;
     virtual GrPath* onCreatePath(const SkPath&) SK_OVERRIDE;
-    virtual GrTexture* onCreatePlatformTexture(
-        const GrPlatformTextureDesc& desc) SK_OVERRIDE;
-    virtual GrRenderTarget* onCreatePlatformRenderTarget(
-        const GrPlatformRenderTargetDesc& desc) SK_OVERRIDE;
+    virtual GrTexture* onWrapBackendTexture(const GrBackendTextureDesc&) SK_OVERRIDE;
+    virtual GrRenderTarget* onWrapBackendRenderTarget(const GrBackendRenderTargetDesc&) SK_OVERRIDE;
     virtual bool createStencilBufferForRenderTarget(GrRenderTarget* rt,
                                                     int width,
                                                     int height) SK_OVERRIDE;
@@ -106,10 +106,10 @@ protected:
                                      uint32_t numVertices) SK_OVERRIDE;
 
     virtual void setStencilPathSettings(const GrPath&,
-                                        GrPathFill,
+                                        SkPath::FillType,
                                         GrStencilSettings* settings)
                                         SK_OVERRIDE;
-    virtual void onGpuStencilPath(const GrPath*, GrPathFill) SK_OVERRIDE;
+    virtual void onGpuStencilPath(const GrPath*, SkPath::FillType) SK_OVERRIDE;
 
     virtual void clearStencil() SK_OVERRIDE;
     virtual void clearStencilClip(const GrIRect& rect,
@@ -147,28 +147,17 @@ private:
 
     const GrGLContextInfo& glContextInfo() const { return fGLContextInfo; }
 
-    // adjusts texture matrix to account for orientation
-    static void AdjustTextureMatrix(const GrGLTexture* texture,
-                                    GrMatrix* matrix);
-
-    // subclass may try to take advantage of identity tex matrices.
-    // This helper determines if matrix will be identity after all
-    // adjustments are applied.
-    static bool TextureMatrixIsIdentity(const GrGLTexture* texture,
-                                        const GrSamplerState& sampler);
-
     static bool BlendCoeffReferencesConstant(GrBlendCoeff coeff);
 
     // for readability of function impls
     typedef GrGLProgram::Desc        ProgramDesc;
-    typedef ProgramDesc::StageDesc   StageDesc;
 
     class ProgramCache : public ::GrNoncopyable {
     public:
         ProgramCache(const GrGLContextInfo& gl);
 
         void abandon();
-        GrGLProgram* getProgram(const GrGLProgram::Desc& desc, const GrCustomStage** stages);
+        GrGLProgram* getProgram(const GrGLProgram::Desc& desc, const GrEffectStage* stages[]);
     private:
         enum {
             kKeySize = sizeof(ProgramDesc),
@@ -209,19 +198,6 @@ private:
         const GrGLContextInfo&      fGL;
     };
 
-    // binds the texture and sets its texture params
-    // This may also perform a downsample on the src texture which may or may
-    // not modify the scissor test and rect. So in flushGraphicsState a
-    // call to flushScissor must occur after all textures have been flushed via
-    // this function.
-    void flushBoundTextureAndParams(int stage);
-    void flushBoundTextureAndParams(int stage,
-                                    const GrTextureParams& params,
-                                    GrGLTexture* nextTexture);
-
-    // sets the texture matrix for the currently bound program
-    void flushTextureMatrix(int stage);
-
     // sets the color specified by GrDrawState::setColor()
     void flushColor(GrColor color);
 
@@ -231,14 +207,6 @@ private:
     // sets the MVP matrix uniform for currently bound program
     void flushViewMatrix(DrawType type);
 
-    // flushes the parameters to two point radial gradient
-    void flushRadial2(int stage);
-
-    // flushes the parameters for convolution
-    void flushConvolution(int stage);
-
-    // flushes the color matrix
-    void flushColorMatrix();
 
     // flushes dithering, color-mask, and face culling stat
     void flushMiscFixedFunctionState();
@@ -250,10 +218,9 @@ private:
     void buildProgram(bool isPoints,
                       BlendOptFlags blendOpts,
                       GrBlendCoeff dstCoeff,
-                      const GrCustomStage** customStages,
                       ProgramDesc* desc);
 
-    // Inits GrDrawTarget::Caps, sublcass may enable additional caps.
+    // Inits GrDrawTarget::Caps, subclass may enable additional caps.
     void initCaps();
 
     void initFSAASupport();
@@ -367,10 +334,10 @@ private:
     } fHWAAState;
 
     struct {
-        GrMatrix    fViewMatrix;
+        SkMatrix    fViewMatrix;
         SkISize     fRTSize;
         void invalidate() {
-            fViewMatrix = GrMatrix::InvalidMatrix();
+            fViewMatrix = SkMatrix::InvalidMatrix();
             fRTSize.fWidth = -1; // just make the first value compared illegal.
         }
     } fHWPathMatrixState;

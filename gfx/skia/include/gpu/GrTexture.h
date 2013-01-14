@@ -10,7 +10,6 @@
 #define GrTexture_DEFINED
 
 #include "GrSurface.h"
-#include "GrCacheID.h"
 
 class GrRenderTarget;
 class GrResourceKey;
@@ -20,8 +19,6 @@ class GrTexture : public GrSurface {
 
 public:
     SK_DECLARE_INST_COUNT(GrTexture)
-    GR_DECLARE_RESOURCE_CACHE_TYPE()
-
     // from GrResource
     /**
      * Informational texture flags
@@ -111,9 +108,9 @@ public:
 
     /**
      *  Return the native ID or handle to the texture, depending on the
-     *  platform. e.g. on opengl, return the texture ID.
+     *  platform. e.g. on OpenGL, return the texture ID.
      */
-    virtual intptr_t getTextureHandle() const = 0;
+    virtual GrBackendObject getTextureHandle() const = 0;
 
     /**
      *  Call this when the state of the native API texture object is
@@ -130,15 +127,12 @@ public:
 #else
     void validate() const {}
 #endif
-
     static GrResourceKey ComputeKey(const GrGpu* gpu,
-                                    const GrTextureParams* sampler,
+                                    const GrTextureParams* params,
                                     const GrTextureDesc& desc,
-                                    const GrCacheData& cacheData,
-                                    bool scratch);
-
+                                    const GrCacheID& cacheID);
+    static GrResourceKey ComputeScratchKey(const GrTextureDesc& desc);
     static bool NeedsResizing(const GrResourceKey& key);
-    static bool IsScratchTexture(const GrResourceKey& key);
     static bool NeedsFiltering(const GrResourceKey& key);
 
 protected:
@@ -146,13 +140,13 @@ protected:
                                    // base class cons sets to NULL
                                    // subclass cons can create and set
 
-    GrTexture(GrGpu* gpu, const GrTextureDesc& desc)
-    : INHERITED(gpu, desc)
+    GrTexture(GrGpu* gpu, const GrTextureDesc& desc, Origin origin)
+    : INHERITED(gpu, desc, origin)
     , fRenderTarget(NULL) {
 
         // only make sense if alloc size is pow2
-        fShiftFixedX = 31 - Gr_clz(fDesc.fWidth);
-        fShiftFixedY = 31 - Gr_clz(fDesc.fHeight);
+        fShiftFixedX = 31 - SkCLZ(fDesc.fWidth);
+        fShiftFixedY = 31 - SkCLZ(fDesc.fHeight);
     }
 
     // GrResource overrides

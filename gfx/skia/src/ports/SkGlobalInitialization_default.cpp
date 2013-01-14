@@ -7,12 +7,8 @@
 
 #include "SkTypes.h"
 
-#if !SK_ALLOW_STATIC_GLOBAL_INITIALIZERS
-
 #include "SkBitmapProcShader.h"
-#include "SkFlipPixelRef.h"
 #include "SkImageRef_ashmem.h"
-#include "SkImageRef_GlobalPool.h"
 #include "SkMallocPixelRef.h"
 #include "SkPathEffect.h"
 #include "SkPixelRef.h"
@@ -39,11 +35,15 @@
 #include "SkEmbossMaskFilter.h"
 #include "SkFlattenable.h"
 #include "SkGradientShader.h"
+#include "SkImages.h"
 #include "SkLayerDrawLooper.h"
 #include "SkLayerRasterizer.h"
 #include "SkLightingImageFilter.h"
 #include "SkMagnifierImageFilter.h"
+#include "SkMatrixConvolutionImageFilter.h"
+#include "SkMergeImageFilter.h"
 #include "SkMorphologyImageFilter.h"
+#include "SkOffsetImageFilter.h"
 #include "SkPixelXorXfermode.h"
 #include "SkStippleMaskFilter.h"
 #include "SkTableColorFilter.h"
@@ -79,23 +79,20 @@ void SkFlattenable::InitializeFlattenables() {
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkStippleMaskFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkSumPathEffect)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkMagnifierImageFilter)
+    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkMatrixConvolutionImageFilter)
 
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkOffsetImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkComposeImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkMergeImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkColorFilterImageFilter)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkDownSampleImageFilter)
-
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkFlipPixelRef)
-    SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkImageRef_GlobalPool)
     SK_DEFINE_FLATTENABLE_REGISTRAR_ENTRY(SkMallocPixelRef)
 
     SkBlurMaskFilter::InitializeFlattenables();
     SkColorFilter::InitializeFlattenables();
     SkGradientShader::InitializeFlattenables();
+    SkImages::InitializeFlattenables();
     SkLightingImageFilter::InitializeFlattenables();
     SkTableColorFilter::InitializeFlattenables();
     SkXfermode::InitializeFlattenables();
 }
-
-#endif
