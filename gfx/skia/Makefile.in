@@ -121,11 +121,13 @@ EXPORTS_skia = \
 	include/core/SkSize.h \
 	include/core/SkStream.h \
 	include/core/SkString.h \
+	include/core/SkStrokeRec.h \
 	include/core/SkTArray.h \
 	include/core/SkTDArray.h \
 	include/core/SkTDLinkedList.h \
 	include/core/SkTDStack.h \
 	include/core/SkTDict.h \
+	include/core/SkTInternalLList.h \
 	include/core/SkTLazy.h \
 	include/core/SkTRegistry.h \
 	include/core/SkTScopedPtr.h \
@@ -152,6 +154,7 @@ EXPORTS_skia = \
 	include/effects/SkLayerRasterizer.h \
 	include/effects/SkMorphologyImageFilter.h \
 	include/gpu/GrAARectRenderer.h \
+	include/gpu/GrBackendEffectFactory.h \
 	include/gpu/GrCacheID.h \
 	include/gpu/GrClipData.h \
 	include/gpu/GrColor.h \
@@ -160,12 +163,16 @@ EXPORTS_skia = \
 	include/gpu/GrContext.h \
 	include/gpu/GrCustomStage.h \
 	include/gpu/GrCustomStageUnitTest.h \
+	include/gpu/GrEffect.h \
+	include/gpu/GrEffectStage.h \
+	include/gpu/GrEffectUnitTest.h \
 	include/gpu/GrFontScaler.h \
 	include/gpu/GrGlyph.h \
 	include/gpu/GrInstanceCounter.h \
 	include/gpu/GrKey.h \
 	include/gpu/GrMatrix.h \
 	include/gpu/GrNoncopyable.h \
+	include/gpu/GrPathRendererChain.h \
 	include/gpu/GrPaint.h \
 	include/gpu/GrPoint.h \
 	include/gpu/GrProgramStageFactory.h \
@@ -217,6 +224,8 @@ GPU_CPPSRCS = \
 	GrCustomStage.cpp \
 	GrDefaultPathRenderer.cpp \
 	GrDrawTarget.cpp \
+	GrDrawState.cpp \
+	GrEffect.cpp \
 	GrGeometryBuffer.cpp \
 	GrGpu.cpp \
 	GrGpuFactory.cpp \
@@ -229,6 +238,7 @@ GPU_CPPSRCS = \
 	GrPathRenderer.cpp \
 	GrPathUtils.cpp \
 	GrRectanizer.cpp \
+	GrReducedClip.cpp \
 	GrRenderTarget.cpp \
 	GrResourceCache.cpp \
 	GrResource.cpp \
@@ -248,7 +258,6 @@ GPU_CPPSRCS = \
 	SkGrFontScaler.cpp \
 	SkGrPixelRef.cpp \
 	SkGrTexturePixelRef.cpp \
-	GrColorTableEffect.cpp \
 	GrConfigConversionEffect.cpp \
 	GrConvolutionEffect.cpp \
 	GrSingleTextureEffect.cpp \
@@ -262,6 +271,8 @@ GPU_GL_CPPSRCS = \
 	GrGLCreateNativeInterface_mozilla.cpp \
 	GrGLCreateNullInterface.cpp \
 	GrGLDefaultInterface_native.cpp \
+	GrGLEffect.cpp \
+	GrGLEffectMatrix.cpp \
 	GrGLIndexBuffer.cpp \
 	GrGLInterface.cpp \
 	GrGLPath.cpp \
@@ -282,22 +293,29 @@ GPU_GL_CPPSRCS = \
 	$(NULL)
 
 CPPSRCS = \
+	Sk1DPathEffect.cpp \
+	Sk2DPathEffect.cpp \
 	Sk64.cpp \
 	SkAAClip.cpp \
 	SkAdvancedTypefaceMetrics.cpp \
 	SkAlphaRuns.cpp \
+	SkAvoidXfermode.cpp \
 	SkBBoxRecord.cpp \
 	SkBBoxHierarchyRecord.cpp \
 	SkBase64.cpp \
 	SkBitSet.cpp \
 	SkBitmap.cpp \
 	SkBitmapCache.cpp \
+	SkBitmapFactory.cpp \
 	SkBitmapHeap.cpp \
 	SkBitmapProcShader.cpp \
 	SkBitmapProcState.cpp \
 	SkBitmapProcState_matrixProcs.cpp \
 	SkBitmapSampler.cpp \
+	SkBitmapSource.cpp \
+	SkBitmapTransformer.cpp \
 	SkBitmap_scroll.cpp \
+	SkBlendImageFilter.cpp \
 	SkBlitMask_D32.cpp \
 	SkBlitRow_D16.cpp \
 	SkBlitRow_D32.cpp \
@@ -310,6 +328,7 @@ CPPSRCS = \
 	SkBlitter_RGB16.cpp \
 	SkBlitter_Sprite.cpp \
 	SkBlurDrawLooper.cpp \
+	SkBlurImageFilter.cpp \
 	SkBlurMaskFilter.cpp \
 	SkBlurMask.cpp \
 	SkBuffer.cpp \
@@ -318,13 +337,18 @@ CPPSRCS = \
 	SkClipStack.cpp \
 	SkColor.cpp \
 	SkColorFilter.cpp \
+	SkColorFilterImageFilter.cpp \
 	SkColorFilters.cpp \
 	SkColorMatrix.cpp \
+	SkColorMatrixFilter.cpp \
 	SkColorTable.cpp \
+	SkCornerPathEffect.cpp \
 	SkClampRange.cpp \
 	SkComposeShader.cpp \
 	SkConcaveToTriangles.cpp \
+	SkCondVar.cpp \
 	SkConfig8888.cpp \
+	SkCountdown.cpp \
 	SkCordic.cpp \
 	SkCubicClipper.cpp \
 	SkDashPathEffect.cpp \
@@ -335,11 +359,14 @@ CPPSRCS = \
 	SkDeque.cpp \
 	SkDevice.cpp \
 	SkDeviceProfile.cpp \
+	SkDiscretePathEffect.cpp \
 	SkDither.cpp \
 	SkDraw.cpp \
 	SkEdge.cpp \
 	SkEdgeBuilder.cpp \
 	SkEdgeClipper.cpp \
+	SkEmbossMask.cpp \
+	SkEmbossMaskFilter.cpp \
 	SkFilterProc.cpp \
 	SkFlattenable.cpp \
 	SkFlattenableBuffers.cpp \
@@ -348,6 +375,7 @@ CPPSRCS = \
 	SkFontDescriptor.cpp \
 	SkFontHost.cpp \
 	SkGeometry.cpp \
+	SkGlobalInitialization_default.cpp \
 	SkGlyphCache.cpp \
 	SkGradientShader.cpp \
 	SkGradientTileProc.cpp \
@@ -355,6 +383,7 @@ CPPSRCS = \
 	SkGPipeRead.cpp \
 	SkGPipeWrite.cpp \
 	SkImage.cpp \
+	SkImages.cpp \
 	SkImage_Codec.cpp \
 	SkImage_Picture.cpp \
 	SkImage_Raster.cpp \
@@ -362,18 +391,27 @@ CPPSRCS = \
 	SkImageDecoder_Factory.cpp \
 	SkImageFilter.cpp \
 	SkImagePriv.cpp \
+	SkImageRef.cpp \
+	SkImageRefPool.cpp \
+	SkImageRef_GlobalPool.cpp \
 	SkLayerDrawLooper.cpp \
 	SkLayerRasterizer.cpp \
+	SkLightingImageFilter.cpp \
 	SkLinearGradient.cpp \
 	SkLineClipper.cpp \
 	SkMallocPixelRef.cpp \
+	SkMagnifierImageFilter.cpp \
 	SkMask.cpp \
 	SkMaskFilter.cpp \
 	SkMaskGamma.cpp \
 	SkMath.cpp \
 	SkMatrix.cpp \
+	SkMatrixConvolutionImageFilter.cpp \
 	SkMemory_malloc.cpp \
+	SkMergeImageFilter.cpp \
 	SkMetaData.cpp \
+	SkMorphologyImageFilter.cpp \
+	SkOffsetImageFilter.cpp \
 	SkOrderedReadBuffer.cpp \
 	SkOrderedWriteBuffer.cpp \
 	SkOSFile_stdio.cpp \
@@ -389,11 +427,15 @@ CPPSRCS = \
 	SkPicturePlayback.cpp \
 	SkPictureRecord.cpp \
 	SkPictureStateTree.cpp \
+	SkPictureUtils.cpp \
 	SkPixelRef.cpp \
+	SkPixelXorXfermode.cpp \
 	SkPoint.cpp \
 	SkProcSpriteBlitter.cpp \
 	SkPtrRecorder.cpp \
 	SkQuadClipper.cpp \
+	SkRRect.cpp \
+	SkRTConf.cpp \
 	SkRTree.cpp \
 	SkRadialGradient.cpp \
 	SkRasterClip.cpp \
@@ -411,16 +453,25 @@ CPPSRCS = \
 	SkScan_Hairline.cpp \
 	SkScan_Path.cpp \
 	SkShader.cpp \
+	SkSingleInputImageFilter.cpp \
 	SkSpriteBlitter_ARGB32.cpp \
 	SkSpriteBlitter_RGB16.cpp \
+	SkStippleMaskFilter.cpp \
 	SkStream.cpp \
 	SkString.cpp \
 	SkStroke.cpp \
+	SkStrokeRec.cpp \
 	SkStrokerPriv.cpp \
 	SkSurface.cpp \
 	SkSurface_Raster.cpp \
 	SkSurface_Picture.cpp \
 	SkSweepGradient.cpp \
+	SkTableColorFilter.cpp \
+	SkTableMaskFilter.cpp \
+	SkTestImageFilters.cpp \
+	SkThreadPool.cpp \
+	SkTileGrid.cpp \
+	SkTileGridPicture.cpp \
 	SkTLS.cpp \
 	SkTSearch.cpp \
 	SkTwoPointConicalGradient.cpp \
@@ -455,6 +506,7 @@ CPPSRCS += \
 	SkMMapStream.cpp \
 	SkTime_Unix.cpp \
 	SkThread_pthread.cpp \
+	SkThreadUtils_pthread.cpp \
 	$(NULL)
 
 DEFINES += -DSK_BUILD_FOR_ANDROID_NDK
