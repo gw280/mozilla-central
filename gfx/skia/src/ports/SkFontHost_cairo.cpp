@@ -28,15 +28,15 @@ public:
     virtual ~SkScalerContext_CairoFT();
 
 protected:
-    virtual unsigned generateGlyphCount();
-    virtual uint16_t generateCharToGlyph(SkUnichar uniChar);
-    virtual void generateAdvance(SkGlyph* glyph);
-    virtual void generateMetrics(SkGlyph* glyph);
-    virtual void generateImage(const SkGlyph& glyph, SkMaskGamma::PreBlend* maskPreBlend);
-    virtual void generatePath(const SkGlyph& glyph, SkPath* path);
+    virtual unsigned generateGlyphCount() SK_OVERRIDE;
+    virtual uint16_t generateCharToGlyph(SkUnichar uniChar) SK_OVERRIDE;
+    virtual void generateAdvance(SkGlyph* glyph) SK_OVERRIDE;
+    virtual void generateMetrics(SkGlyph* glyph) SK_OVERRIDE;
+    virtual void generateImage(const SkGlyph& glyph) SK_OVERRIDE;
+    virtual void generatePath(const SkGlyph& glyph, SkPath* path) SK_OVERRIDE;
     virtual void generateFontMetrics(SkPaint::FontMetrics* mx,
-                                     SkPaint::FontMetrics* my);
-    virtual SkUnichar generateGlyphToChar(uint16_t glyph);
+                                     SkPaint::FontMetrics* my) SK_OVERRIDE;
+    virtual SkUnichar generateGlyphToChar(uint16_t glyph) SK_OVERRIDE;
 private:
     cairo_scaled_font_t* fScaledFont;
     uint32_t fLoadGlyphFlags;
@@ -149,7 +149,7 @@ SkAdvancedTypefaceMetrics* SkFontHost::GetAdvancedTypefaceMetrics(
     return NULL;
 }
 
-void SkFontHost::FilterRec(SkScalerContext::Rec* rec) {
+void SkFontHost::FilterRec(SkScalerContext::Rec* rec, SkTypeface* face) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -324,7 +324,7 @@ void SkScalerContext_CairoFT::generateMetrics(SkGlyph* glyph)
     glyph->fRsbDelta = 0;
 }
 
-void SkScalerContext_CairoFT::generateImage(const SkGlyph& glyph, SkMaskGamma::PreBlend* maskPreBlend)
+void SkScalerContext_CairoFT::generateImage(const SkGlyph& glyph)
 {
     SkASSERT(fScaledFont != NULL);
     CairoLockedFTFace faceLock(fScaledFont);
@@ -337,7 +337,7 @@ void SkScalerContext_CairoFT::generateImage(const SkGlyph& glyph, SkMaskGamma::P
         return;
     }
 
-    generateGlyphImage(face, glyph, maskPreBlend);
+    generateGlyphImage(face, glyph);
 }
 
 void SkScalerContext_CairoFT::generatePath(const SkGlyph& glyph, SkPath* path)
