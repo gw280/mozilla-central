@@ -110,9 +110,7 @@ private:
   void MarkChanged();
 
   IntSize mSize;
-  SkBitmap mBitmap;
   SkRefPtr<SkCanvas> mCanvas;
-  SkRefPtr<SkDevice> mDevice;
   std::vector<SourceSurfaceSkia*> mSnapshots;
 };
 

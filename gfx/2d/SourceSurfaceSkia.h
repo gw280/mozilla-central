@@ -26,7 +26,7 @@ public:
   virtual IntSize GetSize() const;
   virtual SurfaceFormat GetFormat() const;
 
-  SkBitmap& GetBitmap() { return mBitmap; }
+  SkCanvas* GetCanvas() { return mCanvas; }
 
   bool InitFromData(unsigned char* aData,
                     const IntSize &aSize,
@@ -34,13 +34,18 @@ public:
                     SurfaceFormat aFormat);
 
   /**
-   * If aOwner is nullptr, we make a copy of the pixel data in the bitmap, 
-   * otherwise we just reference this data until DrawTargetWillChange is called.
+   * If aOwner is nullptr, we make a copy of the pixel data in the canvas (may involve
+   * a GPU readback and flush), otherwise we just reference this canvas until 
+   * DrawTargetWillChange is called.
    */
-  bool InitWithBitmap(const SkBitmap& aBitmap,
+  bool InitFromCanvas(SkCanvas* aCanvas,
                       SurfaceFormat aFormat,
                       DrawTargetSkia* aOwner);
 
+  /**
+   * Deep copy a provided SkBitmap
+   */
+  bool InitWithBitmap(const SkBitmap& aBitmap);
 
   virtual unsigned char *GetData();
 
@@ -54,6 +59,7 @@ private:
   void MarkIndependent();
 
   SkBitmap mBitmap;
+  SkCanvas* mCanvas;
   SurfaceFormat mFormat;
   IntSize mSize;
   int32_t mStride;

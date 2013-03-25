@@ -36,6 +36,35 @@ SourceSurfaceSkia::GetFormat() const
   return mFormat;
 }
 
+bool
+SourceSurfaceSkia::InitFromCanvas(SkCanvas* aCanvas,
+                                  SurfaceFormat aFormat,
+                                  DrawTargetSkia* aOwner)
+{
+  SkISize size = aCanvas->getDeviceSize();
+
+  mCanvas = aCanvas;
+
+  if (aOwner) {
+    mCanvas = aCanvas;
+    mDrawTarget = aOwner;
+  } else {
+    // Skia only currently supports ARGB8888 for readPixels
+    mBitmap.setConfig(SkBitmap::kARGB_8888_Config, size.fWidth, size.fHeight);
+
+    if (!aCanvas->readPixels(&mBitmap, 0, 0)) {
+      return false;
+    }
+  }
+
+  mSize = IntSize(size.fWidth, size.fHeight);
+  mFormat = FORMAT_B8G8R8A8;
+  mStride = mBitmap.rowBytes();
+  mDrawTarget = aOwner;
+
+  return true;
+}
+
 bool 
 SourceSurfaceSkia::InitFromData(unsigned char* aData,
                                 const IntSize &aSize,
@@ -46,17 +75,20 @@ SourceSurfaceSkia::InitFromData(unsigned char* aData,
   temp.setConfig(GfxFormatToSkiaConfig(aFormat), aSize.width, aSize.height, aStride);
   temp.setPixels(aData);
 
+  SkAutoTUnref<SkDevice> device(new SkDevice(temp.getConfig(), aSize.width, aSize.height));
+
   if (!temp.copyTo(&mBitmap, GfxFormatToSkiaConfig(aFormat))) {
     return false;
   }
 
   if (aFormat == FORMAT_B8G8R8X8) {
-    mBitmap.lockPixels();
+    SkBitmap& bitmap = device->accessBitmap();
+    bitmap.lockPixels();
     // We have to manually set the A channel to be 255 as Skia doesn't understand BGRX
     ConvertBGRXToBGRA(reinterpret_cast<unsigned char*>(mBitmap.getPixels()), aSize, aStride);
-    mBitmap.unlockPixels();
-    mBitmap.notifyPixelsChanged();
-    mBitmap.setIsOpaque(true);
+    bitmap.unlockPixels();
+    bitmap.notifyPixelsChanged();
+    bitmap.setIsOpaque(true);
   }
 
   mSize = aSize;
@@ -66,23 +98,17 @@ SourceSurfaceSkia::InitFromData(unsigned char* aData,
 }
 
 bool
-SourceSurfaceSkia::InitWithBitmap(const SkBitmap& aBitmap,
-                                  SurfaceFormat aFormat,
-                                  DrawTargetSkia* aOwner)
+SourceSurfaceSkia::InitWithBitmap(const SkBitmap& aBitmap);
 {
-  mFormat = aFormat;
+  mFormat = SkiaConfigToGfxFormat(aBitmap.getConfig());
   mSize = IntSize(aBitmap.width(), aBitmap.height());
 
-  if (aOwner) {
-    mBitmap = aBitmap;
-    mStride = aBitmap.rowBytes();
-    mDrawTarget = aOwner;
-    return true;
-  } else if (aBitmap.copyTo(&mBitmap, aBitmap.getConfig())) {
-    mStride = mBitmap.rowBytes();
-    return true;
+  if (!aBitmap.copyTo(&mBitmap, aBitmap.getConfig())) {
+    return false;
   }
-  return false;
+
+  mStride = mBitmap.rowBytes();
+  return true;
 }
 
 unsigned char*

@@ -99,9 +99,11 @@ TemporaryRef<SourceSurface>
 DrawTargetSkia::Snapshot()
 {
   RefPtr<SourceSurfaceSkia> source = new SourceSurfaceSkia();
-  if (!source->InitWithBitmap(mBitmap, mFormat, this)) {
+
+  if (!source->InitFromCanvas(mCanvas.get(), mFormat, this)) {
     return nullptr;
   }
+
   AppendSnapshot(source);
   return source;
 }
@@ -566,8 +568,7 @@ DrawTargetSkia::CopySurface(SourceSurface *aSurface,
   mCanvas->clipRect(dest, SkRegion::kReplace_Op);
   SkPaint paint;
 
-  if (mBitmap.config() == SkBitmap::kRGB_565_Config &&
-      mCanvas->getDevice()->config() == SkBitmap::kRGB_565_Config) {
+  if (mCanvas->getDevice()->config() == SkBitmap::kRGB_565_Config) {
     // Set the xfermode to SOURCE_OVER to workaround
     // http://code.google.com/p/skia/issues/detail?id=628
     // RGB565 is opaque so they're equivalent anyway
@@ -583,16 +584,10 @@ DrawTargetSkia::CopySurface(SourceSurface *aSurface,
 bool
 DrawTargetSkia::Init(const IntSize &aSize, SurfaceFormat aFormat)
 {
-  mBitmap.setConfig(GfxFormatToSkiaConfig(aFormat), aSize.width, aSize.height);
-  if (!mBitmap.allocPixels()) {
-    return false;
-  }
-  mBitmap.eraseARGB(0, 0, 0, 0);
-  SkAutoTUnref<SkDevice> device(new SkDevice(mBitmap));
+  SkAutoTUnref<SkDevice> device(new SkDevice(GfxFormatToSkiaConfig(aFormat), aSize.width, aSize.height));
   SkAutoTUnref<SkCanvas> canvas(new SkCanvas(device.get()));
   mSize = aSize;
 
-  mDevice = device.get();
   mCanvas = canvas.get();
   mFormat = aFormat;
   return true;
@@ -616,7 +611,6 @@ DrawTargetSkia::InitWithFBO(unsigned int aFBOID, GrContext* aGrContext, const In
   SkAutoTUnref<SkCanvas> canvas(new SkCanvas(device.get()));
   mSize = aSize;
 
-  mDevice = device.get();
   mCanvas = canvas.get();
   mFormat = aFormat;
 }
@@ -625,20 +619,21 @@ DrawTargetSkia::InitWithFBO(unsigned int aFBOID, GrContext* aGrContext, const In
 void
 DrawTargetSkia::Init(unsigned char* aData, const IntSize &aSize, int32_t aStride, SurfaceFormat aFormat)
 {
+  SkBitmap bitmap;
+
   if (aFormat == FORMAT_B8G8R8X8) {
     // We have to manually set the A channel to be 255 as Skia doesn't understand BGRX
     ConvertBGRXToBGRA(aData, aSize, aStride);
-    mBitmap.setIsOpaque(true);
+    bitmap.setIsOpaque(true);
   }
 
-  mBitmap.setConfig(GfxFormatToSkiaConfig(aFormat), aSize.width, aSize.height, aStride);
-  mBitmap.setPixels(aData);
+  bitmap.setConfig(GfxFormatToSkiaConfig(aFormat), aSize.width, aSize.height, aStride);
+  bitmap.setPixels(aData);
   
-  SkAutoTUnref<SkDevice> device(new SkDevice(mBitmap));
+  SkAutoTUnref<SkDevice> device(new SkDevice(bitmap));
   SkAutoTUnref<SkCanvas> canvas(new SkCanvas(device.get()));
   mSize = aSize;
 
-  mDevice = device.get();
   mCanvas = canvas.get();
   mFormat = aFormat;
 }
