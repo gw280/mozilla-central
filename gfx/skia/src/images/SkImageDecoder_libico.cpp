@@ -16,19 +16,16 @@ class SkICOImageDecoder : public SkImageDecoder {
 public:
     SkICOImageDecoder();
 
-    virtual Format getFormat() const {
+    virtual Format getFormat() const SK_OVERRIDE {
         return kICO_Format;
     }
 
 protected:
-    virtual bool onDecode(SkStream* stream, SkBitmap* bm, Mode);
-};
+    virtual bool onDecode(SkStream* stream, SkBitmap* bm, Mode) SK_OVERRIDE;
 
-#if 0 // UNUSED
-SkImageDecoder* SkCreateICOImageDecoder() {
-    return new SkICOImageDecoder;
-}
-#endif
+private:
+    typedef SkImageDecoder INHERITED;
+};
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
@@ -78,7 +75,7 @@ static int calculateRowBytesFor8888(int w, int bitCount)
 
 bool SkICOImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode)
 {
-    size_t length = stream->read(NULL, 0);
+    size_t length = stream->getLength();
     SkAutoMalloc autoMal(length);
     unsigned char* buf = (unsigned char*)autoMal.get();
     if (stream->read((void*)buf, length) != length) {
@@ -235,12 +232,16 @@ bool SkICOImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode)
     //if the andbitmap (mask) is all zeroes, then we can easily do an index bitmap
     //however, with small images with large colortables, maybe it's better to still do argb_8888
 
-    bm->setConfig(SkBitmap::kARGB_8888_Config, w, h, calculateRowBytesFor8888(w, bitCount));
-
     if (SkImageDecoder::kDecodeBounds_Mode == mode) {
+        bm->setConfig(SkBitmap::kARGB_8888_Config, w, h, calculateRowBytesFor8888(w, bitCount));
         delete[] colors;
         return true;
     }
+    // No Bitmap reuse supported for this format
+    if (!bm->isNull()) {
+        return false;
+    }
+    bm->setConfig(SkBitmap::kARGB_8888_Config, w, h, calculateRowBytesFor8888(w, bitCount));
 
     if (!this->allocPixelRef(bm, NULL))
     {
@@ -372,9 +373,7 @@ static void editPixelBit32(const int pixelNo, const unsigned char* buf,
 DEFINE_DECODER_CREATOR(ICOImageDecoder);
 /////////////////////////////////////////////////////////////////////////////////////////
 
-#include "SkTRegistry.h"
-
-static SkImageDecoder* sk_libico_dfactory(SkStream* stream) {
+static bool is_ico(SkStream* stream) {
     // Check to see if the first four bytes are 0,0,1,0
     // FIXME: Is that required and sufficient?
     SkAutoMalloc autoMal(4);
@@ -384,10 +383,27 @@ static SkImageDecoder* sk_libico_dfactory(SkStream* stream) {
     int type = read2Bytes(buf, 2);
     if (reserved != 0 || type != 1) {
         // This stream does not represent an ICO image.
-        return NULL;
+        return false;
     }
-    return SkNEW(SkICOImageDecoder);
+    return true;
+}
+
+#include "SkTRegistry.h"
+
+static SkImageDecoder* sk_libico_dfactory(SkStream* stream) {
+    if (is_ico(stream)) {
+        return SkNEW(SkICOImageDecoder);
+    }
+    return NULL;
 }
 
 static SkTRegistry<SkImageDecoder*, SkStream*> gReg(sk_libico_dfactory);
 
+static SkImageDecoder::Format get_format_ico(SkStream* stream) {
+    if (is_ico(stream)) {
+        return SkImageDecoder::kICO_Format;
+    }
+    return SkImageDecoder::kUnknown_Format;
+}
+
+static SkTRegistry<SkImageDecoder::Format, SkStream*> gFormatReg(get_format_ico);

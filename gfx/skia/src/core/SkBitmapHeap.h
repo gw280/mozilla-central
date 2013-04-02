@@ -47,6 +47,7 @@ private:
     size_t fBytesAllocated;
 
     friend class SkBitmapHeap;
+    friend class SkBitmapHeapTester;
 };
 
 
@@ -237,9 +238,9 @@ private:
         uint32_t fStorageSlot; // slot of corresponding bitmap in fStorage.
 
         /**
-         * Compare two LookupEntry pointers, returning -1, 0, 1 for sorting.
+         * Compare two LookupEntry pointers for sorting and searching.
          */
-        static int Compare(const LookupEntry* a, const LookupEntry* b);
+        static bool Less(const LookupEntry& a, const LookupEntry& b);
     };
 
     /**

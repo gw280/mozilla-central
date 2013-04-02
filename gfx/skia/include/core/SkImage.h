@@ -8,6 +8,7 @@
 #ifndef SkImage_DEFINED
 #define SkImage_DEFINED
 
+#include "SkImageEncoder.h"
 #include "SkRefCnt.h"
 #include "SkScalar.h"
 
@@ -16,14 +17,10 @@ class SkCanvas;
 class SkPaint;
 class SkShader;
 class GrContext;
-struct GrPlatformTextureDesc;
+class GrTexture;
 
 // need for TileMode
 #include "SkShader.h"
-
-////// EXPERIMENTAL
-
-class SkColorSpace;
 
 /**
  *  SkImage is an abstraction for drawing a rectagle of pixels, though the
@@ -35,7 +32,7 @@ class SkColorSpace;
  *  change, if for example that image can be re-created via encoded data or
  *  other means.
  */
-class SkImage : public SkRefCnt {
+class SK_API SkImage : public SkRefCnt {
 public:
     SK_DECLARE_INST_COUNT(SkImage)
 
@@ -63,22 +60,38 @@ public:
         int         fHeight;
         ColorType   fColorType;
         AlphaType   fAlphaType;
-
     };
 
-    static SkImage* NewRasterCopy(const Info&, SkColorSpace*, const void* pixels, size_t rowBytes);
-    static SkImage* NewRasterData(const Info&, SkColorSpace*, SkData* pixels, size_t rowBytes);
+    static SkImage* NewRasterCopy(const Info&, const void* pixels, size_t rowBytes);
+    static SkImage* NewRasterData(const Info&, SkData* pixels, size_t rowBytes);
     static SkImage* NewEncodedData(SkData*);
-    static SkImage* NewTexture(GrContext*, const GrPlatformTextureDesc&);
+    static SkImage* NewTexture(GrTexture*);
 
     int width() const { return fWidth; }
     int height() const { return fHeight; }
     uint32_t uniqueID() const { return fUniqueID; }
 
+    /**
+     * Return the GrTexture that stores the image pixels. Calling getTexture
+     * does not affect the reference count of the GrTexture object.
+     * Will return NULL if the image does not use a texture.
+     */
+    GrTexture* getTexture();
+
     SkShader*   newShaderClamp() const;
     SkShader*   newShader(SkShader::TileMode, SkShader::TileMode) const;
 
     void draw(SkCanvas*, SkScalar x, SkScalar y, const SkPaint*);
+
+    /**
+     *  Encode the image's pixels and return the result as a new SkData, which
+     *  the caller must manage (i.e. call unref() when they are done).
+     *
+     *  If the image type cannot be encoded, or the requested encoder type is
+     *  not supported, this will return NULL.
+     */
+    SkData* encode(SkImageEncoder::Type t = SkImageEncoder::kPNG_Type,
+                   int quality = 80) const;
 
 protected:
     SkImage(int width, int height) :

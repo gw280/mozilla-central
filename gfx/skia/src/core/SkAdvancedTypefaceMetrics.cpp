@@ -17,8 +17,9 @@ SK_DEFINE_INST_COUNT(SkAdvancedTypefaceMetrics)
 #endif
 
 #if defined(SK_BUILD_FOR_UNIX) || defined(SK_BUILD_FOR_ANDROID)
-#include <ft2build.h>
-#include FT_FREETYPE_H
+// forward declare structs needed for getAdvanceData() template for freetype
+struct FT_FaceRec;
+typedef struct FT_FaceRec_* FT_Face;
 #endif
 
 #ifdef SK_BUILD_FOR_MAC
@@ -153,7 +154,6 @@ SkAdvancedTypefaceMetrics::AdvanceMetric<Data>* getAdvanceData(
     Data lastAdvance = kInvalidAdvance;
     int repeatedAdvances = 0;
     int wildCardsInRun = 0;
-    int leadingWildCards = 0;
     int trailingWildCards = 0;
     uint32_t subsetIndex = 0;
 
@@ -200,7 +200,6 @@ SkAdvancedTypefaceMetrics::AdvanceMetric<Data>* getAdvanceData(
             }
             repeatedAdvances = 0;
             wildCardsInRun = trailingWildCards;
-            leadingWildCards = trailingWildCards;
             trailingWildCards = 0;
         } else {
             if (lastAdvance == 0 &&
@@ -236,7 +235,6 @@ SkAdvancedTypefaceMetrics::AdvanceMetric<Data>* getAdvanceData(
             }
             repeatedAdvances = 0;
             wildCardsInRun = trailingWildCards;
-            leadingWildCards = trailingWildCards;
             trailingWildCards = 0;
         }
         curRange->fAdvance.append(1, &advance);

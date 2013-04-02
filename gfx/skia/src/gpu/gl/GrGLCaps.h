@@ -9,9 +9,10 @@
 #ifndef GrGLCaps_DEFINED
 #define GrGLCaps_DEFINED
 
+#include "GrDrawTargetCaps.h"
+#include "GrGLStencilBuffer.h"
 #include "SkTArray.h"
 #include "SkTDArray.h"
-#include "GrGLStencilBuffer.h"
 
 class GrGLContextInfo;
 
@@ -20,8 +21,10 @@ class GrGLContextInfo;
  * version and the extensions string. It also tracks formats that have passed
  * the FBO completeness test.
  */
-class GrGLCaps {
+class GrGLCaps : public GrDrawTargetCaps {
 public:
+    SK_DECLARE_INST_COUNT(GrGLCaps)
+
     typedef GrGLStencilBuffer::Format StencilFormat;
 
     /**
@@ -53,15 +56,39 @@ public:
         /**
          * GL3.0-style MSAA FBO (GL_ARB_framebuffer_object)
          */
-        kDesktopARB_MSFBOType,
+        kDesktop_ARB_MSFBOType,
         /**
          * earlier GL_EXT_framebuffer* extensions
          */
-        kDesktopEXT_MSFBOType,
+        kDesktop_EXT_MSFBOType,
         /**
          * GL_APPLE_framebuffer_multisample ES extension
          */
-        kAppleES_MSFBOType,
+        kES_Apple_MSFBOType,
+        /**
+         * GL_IMG_multisampled_render_to_texture. This variation does not have MSAA renderbuffers.
+         * Instead the texture is multisampled when bound to the FBO and then resolved automatically
+         * when read. It also defines an alternate value for GL_MAX_SAMPLES (which we call
+         * GR_GL_MAX_SAMPLES_IMG).
+         */
+        kES_IMG_MsToTexture_MSFBOType,
+        /**
+         * GL_EXT_multisampled_render_to_texture. Same as the IMG one above but uses the standard
+         * GL_MAX_SAMPLES value.
+         */
+        kES_EXT_MsToTexture_MSFBOType,
+
+        kLast_MSFBOType = kES_EXT_MsToTexture_MSFBOType
+    };
+
+    enum FBFetchType {
+        kNone_FBFetchType,
+        /** GL_EXT_shader_framebuffer_fetch */
+        kEXT_FBFetchType,
+        /** GL_NV_shader_framebuffer_fetch */
+        kNV_FBFetchType,
+
+        kLast_FBFetchType = kNV_FBFetchType,
     };
 
     enum CoverageAAType {
@@ -89,13 +116,13 @@ public:
     /**
      * Resets the caps such that nothing is supported.
      */
-    void reset();
+    virtual void reset() SK_OVERRIDE;
 
     /**
      * Initializes the GrGLCaps to the set of features supported in the current
      * OpenGL context accessible via ctxInfo.
      */
-    void init(const GrGLContextInfo& ctxInfo);
+    void init(const GrGLContextInfo& ctxInfo, const GrGLInterface* interface);
 
     /**
      * Call to note that a color config has been verified as a valid color
@@ -138,9 +165,22 @@ public:
     MSFBOType msFBOType() const { return fMSFBOType; }
 
     /**
-     * Reports the maximum number of samples supported.
+     * Does the supported MSAA FBO extension have MSAA renderbuffers?
      */
-    int maxSampleCount() const { return fMaxSampleCount; }
+    bool usesMSAARenderBuffers() const {
+        return kNone_MSFBOType != fMSFBOType &&
+               kES_IMG_MsToTexture_MSFBOType != fMSFBOType &&
+               kES_EXT_MsToTexture_MSFBOType != fMSFBOType;
+    }
+
+    /**
+     * Is the MSAA FBO extension one where the texture is multisampled when bound to an FBO and
+     * then implicitly resolved when read.
+     */
+    bool usesImplicitMSAAResolve() const {
+        return kES_IMG_MsToTexture_MSFBOType == fMSFBOType ||
+               kES_EXT_MsToTexture_MSFBOType == fMSFBOType;
+    }
 
     /**
      * Reports the type of coverage sample AA support.
@@ -156,10 +196,12 @@ public:
      */
     const MSAACoverageMode& getMSAACoverageMode(int desiredSampleCount) const;
 
+    FBFetchType fbFetchType() const { return fFBFetchType; }
+
     /**
      * Prints the caps info using GrPrintf.
      */
-    void print() const;
+    virtual void print() const SK_OVERRIDE;
 
     /**
      * Gets an array of legal stencil formats. These formats are not guaranteed
@@ -173,8 +215,11 @@ public:
     /// The maximum number of fragment uniform vectors (GLES has min. 16).
     int maxFragmentUniformVectors() const { return fMaxFragmentUniformVectors; }
 
-    // maximum number of attribute values per vertex
+    /// maximum number of attribute values per vertex
     int maxVertexAttributes() const { return fMaxVertexAttributes; }
+
+    /// maximum number of texture units accessible in the fragment shader.
+    int maxFragmentTextureUnits() const { return fMaxFragmentTextureUnits; }
 
     /// ES requires an extension to support RGBA8 in RenderBufferStorage
     bool rgba8RenderbufferSupport() const { return fRGBA8RenderbufferSupport; }
@@ -216,10 +261,26 @@ public:
     /// Is GL_ARB_IMAGING supported
     bool imagingSupport() const { return fImagingSupport; }
 
-    // Does ReadPixels support the provided format/type combo?
+    /// Is GL_ARB_fragment_coord_conventions supported?
+    bool fragCoordConventionsSupport() const { return fFragCoordsConventionSupport; }
+
+    /// Is there support for Vertex Array Objects?
+    bool vertexArrayObjectSupport() const { return fVertexArrayObjectSupport; }
+
+    /// Use indices or vertices in CPU arrays rather than VBOs for dynamic content.
+    bool useNonVBOVertexAndIndexDynamicData() const {
+        return fUseNonVBOVertexAndIndexDynamicData;
+    }
+
+    /// Does ReadPixels support the provided format/type combo?
     bool readPixelsSupported(const GrGLInterface* intf,
                              GrGLenum format,
                              GrGLenum type) const;
+
+    bool isCoreProfile() const { return fIsCoreProfile; }
+
+    /// Is there support for discarding the frame buffer
+    bool discardFBSupport() const { return fDiscardFBSupport; }
 
 private:
     /**
@@ -237,7 +298,7 @@ private:
             }
         }
 
-        static const int kNumUints = (kGrPixelConfigCount  + 31) / 32;
+        static const int kNumUints = (kGrPixelConfigCnt  + 31) / 32;
         uint32_t fVerifiedColorConfigs[kNumUints];
 
         void markVerified(GrPixelConfig config) {
@@ -259,7 +320,7 @@ private:
         }
     };
 
-    void initFSAASupport(const GrGLContextInfo& ctxInfo);
+    void initFSAASupport(const GrGLContextInfo& ctxInfo, const GrGLInterface* gli);
     void initStencilFormats(const GrGLContextInfo& ctxInfo);
 
     // tracks configs that have been verified to pass the FBO completeness when
@@ -274,11 +335,13 @@ private:
 
     int fMaxFragmentUniformVectors;
     int fMaxVertexAttributes;
+    int fMaxFragmentTextureUnits;
 
     MSFBOType fMSFBOType;
-    int fMaxSampleCount;
     CoverageAAType fCoverageAAType;
     SkTDArray<MSAACoverageMode> fMSAACoverageModes;
+
+    FBFetchType fFBFetchType;
 
     bool fRGBA8RenderbufferSupport : 1;
     bool fBGRAFormatSupport : 1;
@@ -293,6 +356,13 @@ private:
     bool fTextureRedSupport : 1;
     bool fImagingSupport  : 1;
     bool fTwoFormatLimit : 1;
+    bool fFragCoordsConventionSupport : 1;
+    bool fVertexArrayObjectSupport : 1;
+    bool fUseNonVBOVertexAndIndexDynamicData : 1;
+    bool fIsCoreProfile : 1;
+    bool fDiscardFBSupport : 1;
+
+    typedef GrDrawTargetCaps INHERITED;
 };
 
 #endif

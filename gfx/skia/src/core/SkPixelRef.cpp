@@ -11,25 +11,51 @@
 
 SK_DEFINE_INST_COUNT(SkPixelRef)
 
-// must be a power-of-2. undef to just use 1 mutex
-#define PIXELREF_MUTEX_RING_COUNT       32
 
-#ifdef PIXELREF_MUTEX_RING_COUNT
-    static int32_t gPixelRefMutexRingIndex;
-    static SK_DECLARE_MUTEX_ARRAY(gPixelRefMutexRing, PIXELREF_MUTEX_RING_COUNT);
-#else
-    SK_DECLARE_STATIC_MUTEX(gPixelRefMutex);
+#ifdef SK_USE_POSIX_THREADS
+
+    static SkBaseMutex gPixelRefMutexRing[] = {
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+        { PTHREAD_MUTEX_INITIALIZER }, { PTHREAD_MUTEX_INITIALIZER },
+    };
+
+    // must be a power-of-2. undef to just use 1 mutex
+    #define PIXELREF_MUTEX_RING_COUNT SK_ARRAY_COUNT(gPixelRefMutexRing)
+
+#else // not pthreads
+
+    // must be a power-of-2. undef to just use 1 mutex
+    #define PIXELREF_MUTEX_RING_COUNT       32
+    static SkBaseMutex gPixelRefMutexRing[PIXELREF_MUTEX_RING_COUNT];
+
 #endif
 
 static SkBaseMutex* get_default_mutex() {
-#ifdef PIXELREF_MUTEX_RING_COUNT
+    static int32_t gPixelRefMutexRingIndex;
+
+    SkASSERT(SkIsPow2(PIXELREF_MUTEX_RING_COUNT));
+
     // atomic_inc might be overkill here. It may be fine if once in a while
     // we hit a race-condition and two subsequent calls get the same index...
     int index = sk_atomic_inc(&gPixelRefMutexRingIndex);
     return &gPixelRefMutexRing[index & (PIXELREF_MUTEX_RING_COUNT - 1)];
-#else
-    return &gPixelRefMutex;
-#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -81,12 +107,14 @@ SkPixelRef::SkPixelRef(SkFlattenableReadBuffer& buffer, SkBaseMutex* mutex)
 }
 
 void SkPixelRef::setPreLocked(void* pixels, SkColorTable* ctable) {
+#ifndef SK_IGNORE_PIXELREF_SETPRELOCKED
     // only call me in your constructor, otherwise fLockCount tracking can get
     // out of sync.
     fPixels = pixels;
     fColorTable = ctable;
     fLockCount = SKPIXELREF_PRELOCKED_LOCKCOUNT;
     fPreLocked = true;
+#endif
 }
 
 void SkPixelRef::flatten(SkFlattenableWriteBuffer& buffer) const {
@@ -166,6 +194,10 @@ bool SkPixelRef::readPixels(SkBitmap* dst, const SkIRect* subset) {
 
 bool SkPixelRef::onReadPixels(SkBitmap* dst, const SkIRect* subset) {
     return false;
+}
+
+SkData* SkPixelRef::onRefEncodedData() {
+    return NULL;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

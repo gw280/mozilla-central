@@ -7,7 +7,10 @@
  */
 
 #include "SkOrderedWriteBuffer.h"
+#include "SkBitmap.h"
+#include "SkData.h"
 #include "SkPtrRecorder.h"
+#include "SkStream.h"
 #include "SkTypeface.h"
 
 SkOrderedWriteBuffer::SkOrderedWriteBuffer(size_t minSize)
@@ -16,7 +19,8 @@ SkOrderedWriteBuffer::SkOrderedWriteBuffer(size_t minSize)
     , fNamedFactorySet(NULL)
     , fWriter(minSize)
     , fBitmapHeap(NULL)
-    , fTFSet(NULL) {
+    , fTFSet(NULL)
+    , fBitmapEncoder(NULL) {
 }
 
 SkOrderedWriteBuffer::SkOrderedWriteBuffer(size_t minSize, void* storage, size_t storageSize)
@@ -25,7 +29,8 @@ SkOrderedWriteBuffer::SkOrderedWriteBuffer(size_t minSize, void* storage, size_t
     , fNamedFactorySet(NULL)
     , fWriter(minSize, storage, storageSize)
     , fBitmapHeap(NULL)
-    , fTFSet(NULL) {
+    , fTFSet(NULL)
+    , fBitmapEncoder(NULL) {
 }
 
 SkOrderedWriteBuffer::~SkOrderedWriteBuffer() {
@@ -126,19 +131,78 @@ void SkOrderedWriteBuffer::writePath(const SkPath& path) {
 }
 
 size_t SkOrderedWriteBuffer::writeStream(SkStream* stream, size_t length) {
-    return fWriter.readFromStream(stream, length);
+    fWriter.write32(length);
+    size_t bytesWritten = fWriter.readFromStream(stream, length);
+    if (bytesWritten < length) {
+        fWriter.reservePad(length - bytesWritten);
+    }
+    return bytesWritten;
 }
 
 bool SkOrderedWriteBuffer::writeToStream(SkWStream* stream) {
     return fWriter.writeToStream(stream);
 }
 
+// Defined in SkBitmap.cpp
+bool get_upper_left_from_offset(SkBitmap::Config config, size_t offset, size_t rowBytes,
+                            int32_t* x, int32_t* y);
+
 void SkOrderedWriteBuffer::writeBitmap(const SkBitmap& bitmap) {
-    if (fBitmapHeap) {
-        fWriter.write32(fBitmapHeap->insert(bitmap));
-    } else {
-        bitmap.flatten(*this);
+    // Record the width and height. This way if readBitmap fails a dummy bitmap can be drawn at the
+    // right size.
+    this->writeInt(bitmap.width());
+    this->writeInt(bitmap.height());
+
+    // Record information about the bitmap in one of three ways, in order of priority:
+    // 1. If there is an SkBitmapHeap, store it in the heap. The client can avoid serializing the
+    //    bitmap entirely or serialize it later as desired. A boolean value of true will be written
+    //    to the stream to signify that a heap was used.
+    // 2. If there is a function for encoding bitmaps, use it to write an encoded version of the
+    //    bitmap. After writing a boolean value of false, signifying that a heap was not used, write
+    //    the size of the encoded data. A non-zero size signifies that encoded data was written.
+    // 3. Call SkBitmap::flatten. After writing a boolean value of false, signifying that a heap was
+    //    not used, write a zero to signify that the data was not encoded.
+    bool useBitmapHeap = fBitmapHeap != NULL;
+    // Write a bool: true if the SkBitmapHeap is to be used, in which case the reader must use an
+    // SkBitmapHeapReader to read the SkBitmap. False if the bitmap was serialized another way.
+    this->writeBool(useBitmapHeap);
+    if (useBitmapHeap) {
+        SkASSERT(NULL == fBitmapEncoder);
+        int32_t slot = fBitmapHeap->insert(bitmap);
+        fWriter.write32(slot);
+        // crbug.com/155875
+        // The generation ID is not required information. We write it to prevent collisions
+        // in SkFlatDictionary.  It is possible to get a collision when a previously
+        // unflattened (i.e. stale) instance of a similar flattenable is in the dictionary
+        // and the instance currently being written is re-using the same slot from the
+        // bitmap heap.
+        fWriter.write32(bitmap.getGenerationID());
+        return;
     }
+    if (fBitmapEncoder != NULL) {
+        SkASSERT(NULL == fBitmapHeap);
+        size_t offset = 0;
+        SkAutoDataUnref data(fBitmapEncoder(&offset, bitmap));
+        if (data.get() != NULL) {
+            // Write the length to indicate that the bitmap was encoded successfully, followed
+            // by the actual data.
+            this->writeUInt(SkToU32(data->size()));
+            fWriter.writePad(data->data(), data->size());
+            // Store the coordinate of the offset, rather than fPixelRefOffset, which may be
+            // different depending on the decoder.
+            int32_t x, y;
+            if (0 == offset || !get_upper_left_from_offset(bitmap.config(), offset,
+                                                           bitmap.rowBytes(), &x, &y)) {
+                x = y = 0;
+            }
+            this->write32(x);
+            this->write32(y);
+            return;
+        }
+    }
+    // Bitmap was not encoded. Record a zero, implying that the reader need not decode.
+    this->writeUInt(0);
+    bitmap.flatten(*this);
 }
 
 void SkOrderedWriteBuffer::writeTypeface(SkTypeface* obj) {
@@ -170,6 +234,23 @@ SkNamedFactorySet* SkOrderedWriteBuffer::setNamedFactoryRecorder(SkNamedFactoryS
 SkRefCntSet* SkOrderedWriteBuffer::setTypefaceRecorder(SkRefCntSet* rec) {
     SkRefCnt_SafeAssign(fTFSet, rec);
     return rec;
+}
+
+void SkOrderedWriteBuffer::setBitmapHeap(SkBitmapHeap* bitmapHeap) {
+    SkRefCnt_SafeAssign(fBitmapHeap, bitmapHeap);
+    if (bitmapHeap != NULL) {
+        SkASSERT(NULL == fBitmapEncoder);
+        fBitmapEncoder = NULL;
+    }
+}
+
+void SkOrderedWriteBuffer::setBitmapEncoder(SkPicture::EncodeBitmap bitmapEncoder) {
+    fBitmapEncoder = bitmapEncoder;
+    if (bitmapEncoder != NULL) {
+        SkASSERT(NULL == fBitmapHeap);
+        SkSafeUnref(fBitmapHeap);
+        fBitmapHeap = NULL;
+    }
 }
 
 void SkOrderedWriteBuffer::writeFlattenable(SkFlattenable* flattenable) {

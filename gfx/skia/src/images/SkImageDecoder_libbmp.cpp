@@ -19,33 +19,48 @@ class SkBMPImageDecoder : public SkImageDecoder {
 public:
     SkBMPImageDecoder() {}
 
-    virtual Format getFormat() const {
+    virtual Format getFormat() const SK_OVERRIDE {
         return kBMP_Format;
     }
 
 protected:
-    virtual bool onDecode(SkStream* stream, SkBitmap* bm, Mode mode);
+    virtual bool onDecode(SkStream* stream, SkBitmap* bm, Mode mode) SK_OVERRIDE;
+
+private:
+    typedef SkImageDecoder INHERITED;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
 DEFINE_DECODER_CREATOR(BMPImageDecoder);
 ///////////////////////////////////////////////////////////////////////////////
 
-static SkImageDecoder* sk_libbmp_dfactory(SkStream* stream) {
+static bool is_bmp(SkStream* stream) {
     static const char kBmpMagic[] = { 'B', 'M' };
 
-    size_t len = stream->getLength();
+
     char buffer[sizeof(kBmpMagic)];
 
-    if (len > sizeof(kBmpMagic) &&
-            stream->read(buffer, sizeof(kBmpMagic)) == sizeof(kBmpMagic) &&
-            !memcmp(buffer, kBmpMagic, sizeof(kBmpMagic))) {
+    return stream->read(buffer, sizeof(kBmpMagic)) == sizeof(kBmpMagic) &&
+        !memcmp(buffer, kBmpMagic, sizeof(kBmpMagic));
+}
+
+static SkImageDecoder* sk_libbmp_dfactory(SkStream* stream) {
+    if (is_bmp(stream)) {
         return SkNEW(SkBMPImageDecoder);
     }
     return NULL;
 }
 
 static SkTRegistry<SkImageDecoder*, SkStream*> gReg(sk_libbmp_dfactory);
+
+static SkImageDecoder::Format get_format_bmp(SkStream* stream) {
+    if (is_bmp(stream)) {
+        return SkImageDecoder::kBMP_Format;
+    }
+    return SkImageDecoder::kUnknown_Format;
+}
+
+static SkTRegistry<SkImageDecoder::Format, SkStream*> gFormatReg(get_format_bmp);
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -68,7 +83,7 @@ public:
 
     int width() const { return fWidth; }
     int height() const { return fHeight; }
-    uint8_t* rgb() const { return fRGB.begin(); }
+    const uint8_t* rgb() const { return fRGB.begin(); }
 
 private:
     SkTDArray<uint8_t> fRGB;
@@ -115,11 +130,18 @@ bool SkBMPImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
 
     SkScaledBitmapSampler sampler(width, height, getSampleSize());
 
-    bm->setConfig(config, sampler.scaledWidth(), sampler.scaledHeight());
-    bm->setIsOpaque(true);
     if (justBounds) {
+        bm->setConfig(config, sampler.scaledWidth(), sampler.scaledHeight());
+        bm->setIsOpaque(true);
         return true;
     }
+    // No Bitmap reuse supported for this format
+    if (!bm->isNull()) {
+        return false;
+    }
+
+    bm->setConfig(config, sampler.scaledWidth(), sampler.scaledHeight());
+    bm->setIsOpaque(true);
 
     if (!this->allocPixelRef(bm, NULL)) {
         return false;

@@ -12,6 +12,13 @@
 #include "SkPixelRef.h"
 
 class DeferredDevice;
+class SkImage;
+class SkSurface;
+
+#if !defined(SK_DEFERRED_CANVAS_USES_FACTORIES)
+// This is temporary, for rolling the API change into Chromium/Blink
+#define SK_DEFERRED_CANVAS_USES_FACTORIES 0
+#endif
 
 /** \class SkDeferredCanvas
     Subclass of SkCanvas that encapsulates an SkPicture or SkGPipe for deferred
@@ -25,17 +32,39 @@ class SK_API SkDeferredCanvas : public SkCanvas {
 public:
     class NotificationClient;
 
+    /** Construct a canvas with the specified surface to draw into.
+        This factory must be used for newImageSnapshot to work.
+        @param surface Specifies a surface for the canvas to draw into.
+     */
+    static SkDeferredCanvas* Create(SkSurface* surface);
+
+#ifdef SK_DEVELOPER
+    static SkDeferredCanvas* Create(SkDevice* device); // Used for testing
+#endif
+
+#if !SK_DEFERRED_CANVAS_USES_FACTORIES
+    /** DEPRECATED
+     */
     SkDeferredCanvas();
 
-    /** Construct a canvas with the specified device to draw into.
+    /** DEPRACATED, use create instead
+        Construct a canvas with the specified device to draw into.
         Equivalent to calling default constructor, then setDevice.
         @param device Specifies a device for the canvas to draw into.
     */
     explicit SkDeferredCanvas(SkDevice* device);
 
+    /** DEPRECATED, use create instead
+        Construct a canvas with the specified surface to draw into.
+        This constructor must be used for newImageSnapshot to work.
+        @param surface Specifies a surface for the canvas to draw into.
+    */
+    explicit SkDeferredCanvas(SkSurface* surface);
+#endif
+
     virtual ~SkDeferredCanvas();
 
-    /**
+    /** DEPRECATED
      *  Specify a device to be used by this canvas. Calling setDevice will
      *  release the previously set device, if any. Takes a reference on the
      *  device.
@@ -44,6 +73,16 @@ public:
      *  @return The device argument, for convenience.
      */
     virtual SkDevice* setDevice(SkDevice* device);
+
+    /**
+     *  Specify the surface to be used by this canvas. Calling setSurface will
+     *  release the previously set surface or device. Takes a reference on the
+     *  surface.
+     *
+     *  @param surface The surface that the canvas will raw into
+     *  @return The surface argument, for convenience.
+     */
+    SkSurface* setSurface(SkSurface* surface);
 
     /**
      *  Specify a NotificationClient to be used by this canvas. Calling
@@ -87,6 +126,21 @@ public:
     bool isFreshFrame() const;
 
     /**
+     *  Returns true if the canvas has recorded draw commands that have
+     *  not yet been played back.
+     */
+    bool hasPendingCommands() const;
+
+    /**
+     *  Flushes pending draw commands, if any, and returns an image of the
+     *  current state of the surface pixels up to this point. Subsequent
+     *  changes to the surface (by drawing into its canvas) will not be
+     *  reflected in this image.  Will return NULL if the deferred canvas
+     *  was not constructed from an SkSurface.
+     */
+    SkImage* newImageSnapshot();
+
+    /**
      *  Specify the maximum number of bytes to be allocated for the purpose
      *  of recording draw commands to this canvas.  The default limit, is
      *  64MB.
@@ -109,6 +163,17 @@ public:
      */
     size_t freeMemoryIfPossible(size_t bytesToFree);
 
+    /**
+     * Specifies the maximum size (in bytes) allowed for a given image to be
+     * rendered using the deferred canvas.
+     */
+    void setBitmapSizeThreshold(size_t sizeThreshold);
+
+    /**
+     * Executes all pending commands without drawing
+     */
+    void silentFlush();
+
     // Overrides of the SkCanvas interface
     virtual int save(SaveFlags flags) SK_OVERRIDE;
     virtual int saveLayer(const SkRect* bounds, const SkPaint* paint,
@@ -123,6 +188,8 @@ public:
     virtual void setMatrix(const SkMatrix& matrix) SK_OVERRIDE;
     virtual bool clipRect(const SkRect& rect, SkRegion::Op op,
                           bool doAntiAlias) SK_OVERRIDE;
+    virtual bool clipRRect(const SkRRect& rect, SkRegion::Op op,
+                           bool doAntiAlias) SK_OVERRIDE;
     virtual bool clipPath(const SkPath& path, SkRegion::Op op,
                           bool doAntiAlias) SK_OVERRIDE;
     virtual bool clipRegion(const SkRegion& deviceRgn,
@@ -131,14 +198,15 @@ public:
     virtual void drawPaint(const SkPaint& paint) SK_OVERRIDE;
     virtual void drawPoints(PointMode mode, size_t count, const SkPoint pts[],
                             const SkPaint& paint) SK_OVERRIDE;
-    virtual void drawRect(const SkRect& rect, const SkPaint& paint)
-                          SK_OVERRIDE;
+    virtual void drawOval(const SkRect&, const SkPaint& paint) SK_OVERRIDE;
+    virtual void drawRect(const SkRect& rect, const SkPaint& paint) SK_OVERRIDE;
+    virtual void drawRRect(const SkRRect&, const SkPaint& paint) SK_OVERRIDE;
     virtual void drawPath(const SkPath& path, const SkPaint& paint)
                           SK_OVERRIDE;
     virtual void drawBitmap(const SkBitmap& bitmap, SkScalar left,
                             SkScalar top, const SkPaint* paint)
                             SK_OVERRIDE;
-    virtual void drawBitmapRect(const SkBitmap& bitmap, const SkIRect* src,
+    virtual void drawBitmapRectToRect(const SkBitmap& bitmap, const SkRect* src,
                                 const SkRect& dst, const SkPaint* paint)
                                 SK_OVERRIDE;
 
@@ -172,6 +240,8 @@ public:
 public:
     class NotificationClient {
     public:
+        virtual ~NotificationClient() {}
+
         /**
          *  Called before executing one or several draw commands, which means
          *  once per flush when deferred rendering is enabled.
@@ -192,8 +262,12 @@ public:
          */
         virtual void flushedDrawCommands() {}
 
-    private:
-        typedef SkRefCnt INHERITED;
+        /**
+         *  Called after pending draw commands have been skipped, meaning
+         *  that they were optimized-out because the canvas is cleared
+         *  or completely overwritten by the command currently being recorded.
+         */
+        virtual void skippedPendingDrawCommands() {}
     };
 
 protected:
@@ -201,6 +275,8 @@ protected:
     DeferredDevice* getDeferredDevice() const;
 
 private:
+    SkDeferredCanvas(DeferredDevice*);
+
     void recordedDrawCommand();
     SkCanvas* drawingCanvas() const;
     SkCanvas* immediateCanvas() const;

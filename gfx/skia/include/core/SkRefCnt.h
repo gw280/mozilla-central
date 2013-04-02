@@ -71,6 +71,16 @@ public:
         SkASSERT(fRefCnt > 0);
     }
 
+    /**
+     *  Alias for ref(), for compatibility with scoped_refptr.
+     */
+    void AddRef() { this->ref(); }
+
+    /**
+     *  Alias for unref(), for compatibility with scoped_refptr.
+     */
+    void Release() { this->unref(); }
+
 protected:
     /**
      *  Allow subclasses to call this if they've overridden internal_dispose
@@ -154,9 +164,10 @@ public:
 
     T* get() const { return fObj; }
 
-    void reset(T* obj) {
+    T* reset(T* obj) {
         SkSafeUnref(fObj);
         fObj = obj;
+        return obj;
     }
 
     void swap(SkAutoTUnref* other) {
@@ -178,12 +189,13 @@ public:
     }
 
     /**
-     * BlockRef<B> is a type which inherits from B, cannot be created,
-     * and makes ref and unref private.
+     *  BlockRef<B> is a type which inherits from B, cannot be created,
+     *  cannot be deleted, and makes ref and unref private.
      */
     template<typename B> class BlockRef : public B {
     private:
         BlockRef();
+        ~BlockRef();
         void ref() const;
         void unref() const;
     };
@@ -252,4 +264,3 @@ private:
 };
 
 #endif
-

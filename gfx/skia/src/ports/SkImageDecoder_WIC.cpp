@@ -17,13 +17,78 @@
 #include "SkMovie.h"
 #include "SkStream.h"
 #include "SkTScopedComPtr.h"
+#include "SkUnPreMultiply.h"
+
+//All Windows SDKs back to XPSP2 export the CLSID_WICImagingFactory symbol.
+//In the Windows8 SDK the CLSID_WICImagingFactory symbol is still exported
+//but CLSID_WICImagingFactory is then #defined to CLSID_WICImagingFactory2.
+//Undo this #define if it has been done so that we link against the symbols
+//we intended to link against on all SDKs.
+#if defined(CLSID_WICImagingFactory)
+#undef CLSID_WICImagingFactory
+#endif
 
 class SkImageDecoder_WIC : public SkImageDecoder {
+public:
+    // Decoding modes corresponding to SkImageDecoder::Mode, plus an extra mode for decoding
+    // only the format.
+    enum WICModes {
+        kDecodeFormat_WICMode,
+        kDecodeBounds_WICMode,
+        kDecodePixels_WICMode,
+    };
+
+    /**
+     *  Helper function to decode an SkStream.
+     *  @param stream SkStream to decode. Must be at the beginning.
+     *  @param bm   SkBitmap to decode into. Only used if wicMode is kDecodeBounds_WICMode or
+     *      kDecodePixels_WICMode, in which case it must not be NULL.
+     *  @param format Out parameter for the SkImageDecoder::Format of the SkStream. Only used if
+     *      wicMode is kDecodeFormat_WICMode.
+     */
+    bool decodeStream(SkStream* stream, SkBitmap* bm, WICModes wicMode, Format* format) const;
+
 protected:
-    virtual bool onDecode(SkStream* stream, SkBitmap* bm, Mode mode);
+    virtual bool onDecode(SkStream* stream, SkBitmap* bm, Mode mode) SK_OVERRIDE;
 };
 
+struct FormatConversion {
+    GUID                    fGuidFormat;
+    SkImageDecoder::Format  fFormat;
+};
+
+static const FormatConversion gFormatConversions[] = {
+    { GUID_ContainerFormatBmp, SkImageDecoder::kBMP_Format },
+    { GUID_ContainerFormatGif, SkImageDecoder::kGIF_Format },
+    { GUID_ContainerFormatIco, SkImageDecoder::kICO_Format },
+    { GUID_ContainerFormatJpeg, SkImageDecoder::kJPEG_Format },
+    { GUID_ContainerFormatPng, SkImageDecoder::kPNG_Format },
+};
+
+static SkImageDecoder::Format GuidContainerFormat_to_Format(REFGUID guid) {
+    for (size_t i = 0; i < SK_ARRAY_COUNT(gFormatConversions); i++) {
+        if (IsEqualGUID(guid, gFormatConversions[i].fGuidFormat)) {
+            return gFormatConversions[i].fFormat;
+        }
+    }
+    return SkImageDecoder::kUnknown_Format;
+}
+
 bool SkImageDecoder_WIC::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
+    WICModes wicMode;
+    switch (mode) {
+        case SkImageDecoder::kDecodeBounds_Mode:
+            wicMode = kDecodeBounds_WICMode;
+            break;
+        case SkImageDecoder::kDecodePixels_Mode:
+            wicMode = kDecodePixels_WICMode;
+            break;
+    }
+    return this->decodeStream(stream, bm, wicMode, NULL);
+}
+
+bool SkImageDecoder_WIC::decodeStream(SkStream* stream, SkBitmap* bm, WICModes wicMode,
+                                      Format* format) const {
     //Initialize COM.
     SkAutoCoInitialize scopedCo;
     if (!scopedCo.succeeded()) {
@@ -66,6 +131,20 @@ bool SkImageDecoder_WIC::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
         );
     }
 
+    if (kDecodeFormat_WICMode == wicMode) {
+        SkASSERT(format != NULL);
+        //Get the format
+        if (SUCCEEDED(hr)) {
+            GUID guidFormat;
+            hr = piBitmapDecoder->GetContainerFormat(&guidFormat);
+            if (SUCCEEDED(hr)) {
+                *format = GuidContainerFormat_to_Format(guidFormat);
+                return true;
+            }
+        }
+        return false;
+    }
+
     //Get the first frame from the decoder.
     SkTScopedComPtr<IWICBitmapFrameDecode> piBitmapFrameDecode;
     if (SUCCEEDED(hr)) {
@@ -90,7 +169,7 @@ bool SkImageDecoder_WIC::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
     //Exit early if we're only looking for the bitmap bounds.
     if (SUCCEEDED(hr)) {
         bm->setConfig(SkBitmap::kARGB_8888_Config, width, height);
-        if (SkImageDecoder::kDecodeBounds_Mode == mode) {
+        if (kDecodeBounds_WICMode == wicMode) {
             return true;
         }
         if (!this->allocPixelRef(bm, NULL)) {
@@ -126,7 +205,7 @@ bool SkImageDecoder_WIC::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
     //Copy the pixels into the bitmap.
     if (SUCCEEDED(hr)) {
         SkAutoLockPixels alp(*bm);
-        bm->eraseColor(0);
+        bm->eraseColor(SK_ColorTRANSPARENT);
         const int stride = bm->rowBytes();
         hr = piBitmapSourceConverted->CopyPixels(
             NULL,                             //Get all the pixels
@@ -134,6 +213,9 @@ bool SkImageDecoder_WIC::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
             stride * height,
             reinterpret_cast<BYTE *>(bm->getPixels())
         );
+
+        // Note: we don't need to premultiply here since we specified PBGRA
+        bm->computeAndSetOpaquePredicate();
     }
 
     return SUCCEEDED(hr);
@@ -141,8 +223,16 @@ bool SkImageDecoder_WIC::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
 
 /////////////////////////////////////////////////////////////////////////
 
+extern SkImageDecoder* image_decoder_from_stream(SkStream*);
+
 SkImageDecoder* SkImageDecoder::Factory(SkStream* stream) {
-    return SkNEW(SkImageDecoder_WIC);
+    SkImageDecoder* decoder = image_decoder_from_stream(stream);
+    if (NULL == decoder) {
+        // If no image decoder specific to the stream exists, use SkImageDecoder_WIC.
+        return SkNEW(SkImageDecoder_WIC);
+    } else {
+        return decoder;
+    }
 }
 
 /////////////////////////////////////////////////////////////////////////
@@ -170,6 +260,12 @@ bool SkImageEncoder_WIC::onEncode(SkWStream* stream
 {
     GUID type;
     switch (fType) {
+        case kBMP_Type:
+            type = GUID_ContainerFormatBmp;
+            break;
+        case kICO_Type:
+            type = GUID_ContainerFormatIco;
+            break;
         case kJPEG_Type:
             type = GUID_ContainerFormatJpeg;
             break;
@@ -183,13 +279,30 @@ bool SkImageEncoder_WIC::onEncode(SkWStream* stream
     //Convert to 8888 if needed.
     const SkBitmap* bitmap;
     SkBitmap bitmapCopy;
-    if (SkBitmap::kARGB_8888_Config == bitmapOrig.config()) {
+    if (SkBitmap::kARGB_8888_Config == bitmapOrig.config() && bitmapOrig.isOpaque()) {
         bitmap = &bitmapOrig;
     } else {
         if (!bitmapOrig.copyTo(&bitmapCopy, SkBitmap::kARGB_8888_Config)) {
             return false;
         }
         bitmap = &bitmapCopy;
+    }
+
+    // We cannot use PBGRA so we need to unpremultiply ourselves
+    if (!bitmap->isOpaque()) {
+        SkAutoLockPixels alp(*bitmap);
+
+        uint8_t* pixels = reinterpret_cast<uint8_t*>(bitmap->getPixels());
+        for (int y = 0; y < bitmap->height(); ++y) {
+            for (int x = 0; x < bitmap->width(); ++x) {
+                uint8_t* bytes = pixels + y * bitmap->rowBytes() + x * bitmap->bytesPerPixel();
+
+                SkPMColor* src = reinterpret_cast<SkPMColor*>(bytes);
+                SkColor* dst = reinterpret_cast<SkColor*>(bytes);
+
+                *dst = SkUnPreMultiply::PMColorToColor(*src);
+            }
+        }
     }
 
     //Initialize COM.
@@ -294,10 +407,16 @@ bool SkImageEncoder_WIC::onEncode(SkWStream* stream
     return SUCCEEDED(hr);
 }
 
-SkImageEncoder* SkImageEncoder::Create(Type t) {
+///////////////////////////////////////////////////////////////////////////////
+
+#include "SkTRegistry.h"
+
+static SkImageEncoder* sk_imageencoder_wic_factory(SkImageEncoder::Type t) {
     switch (t) {
-        case kJPEG_Type:
-        case kPNG_Type:
+        case SkImageEncoder::kBMP_Type:
+        case SkImageEncoder::kICO_Type:
+        case SkImageEncoder::kJPEG_Type:
+        case SkImageEncoder::kPNG_Type:
             break;
         default:
             return NULL;
@@ -305,3 +424,15 @@ SkImageEncoder* SkImageEncoder::Create(Type t) {
     return SkNEW_ARGS(SkImageEncoder_WIC, (t));
 }
 
+static SkTRegistry<SkImageEncoder*, SkImageEncoder::Type> gEReg(sk_imageencoder_wic_factory);
+
+static SkImageDecoder::Format get_format_wic(SkStream* stream) {
+    SkImageDecoder::Format format;
+    SkImageDecoder_WIC codec;
+    if (!codec.decodeStream(stream, NULL, SkImageDecoder_WIC::kDecodeFormat_WICMode, &format)) {
+        format = SkImageDecoder::kUnknown_Format;
+    }
+    return format;
+}
+
+static SkTRegistry<SkImageDecoder::Format, SkStream*> gFormatReg(get_format_wic);

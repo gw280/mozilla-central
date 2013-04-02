@@ -10,11 +10,18 @@
 
 #include "GrContext.h"
 #include "GrDrawState.h"
+#include "GrDrawTargetCaps.h"
+#include "GrEffect.h"
 #include "GrGpu.h"
 #include "GrIndexBuffer.h"
 #include "GrPathUtils.h"
+#include "GrTBackendEffectFactory.h"
 #include "SkGeometry.h"
+#include "SkStroke.h"
 #include "SkTemplates.h"
+
+#include "gl/GrGLEffect.h"
+#include "gl/GrGLSL.h"
 
 namespace {
 // quadratics are rendered as 5-sided polys in order to bound the
@@ -147,7 +154,7 @@ int num_quad_subdivs(const SkPoint p[3]) {
         return -1;
     }
 
-    GrScalar dsqd = p[1].distanceToLineBetweenSqd(p[0], p[2]);
+    SkScalar dsqd = p[1].distanceToLineBetweenSqd(p[0], p[2]);
     if (dsqd < gDegenerateToLineTolSqd) {
         return -1;
     }
@@ -156,7 +163,6 @@ int num_quad_subdivs(const SkPoint p[3]) {
         return -1;
     }
 
-    static const int kMaxSub = 4;
     // tolerance of triangle height in pixels
     // tuned on windows  Quadro FX 380 / Z600
     // trade off of fill vs cpu time on verts
@@ -166,6 +172,7 @@ int num_quad_subdivs(const SkPoint p[3]) {
     if (dsqd <= SkScalarMul(gSubdivTol, gSubdivTol)) {
         return 0;
     } else {
+        static const int kMaxSub = 4;
         // subdividing the quad reduces d by 4. so we want x = log4(d/tol)
         // = log4(d*d/tol*tol)/2
         // = log2(d*d/tol*tol)
@@ -197,7 +204,6 @@ int num_quad_subdivs(const SkPoint p[3]) {
  */
 int generate_lines_and_quads(const SkPath& path,
                              const SkMatrix& m,
-                             const SkVector& translate,
                              const GrIRect& devClipBounds,
                              PtArray* lines,
                              PtArray* quads,
@@ -211,15 +217,17 @@ int generate_lines_and_quads(const SkPath& path,
     bool persp = m.hasPerspective();
 
     for (;;) {
-        GrPoint pts[4];
+        GrPoint pathPts[4];
         GrPoint devPts[4];
-        GrPathCmd cmd = (GrPathCmd)iter.next(pts);
-        switch (cmd) {
-            case kMove_PathCmd:
+        SkPath::Verb verb = iter.next(pathPts);
+        switch (verb) {
+             case SkPath::kConic_Verb:
+                SkASSERT(0);
                 break;
-            case kLine_PathCmd:
-                SkPoint::Offset(pts, 2, translate);
-                m.mapPoints(devPts, pts, 2);
+           case SkPath::kMove_Verb:
+                break;
+            case SkPath::kLine_Verb:
+                m.mapPoints(devPts, pathPts, 2);
                 bounds.setBounds(devPts, 2);
                 bounds.outset(SK_Scalar1, SK_Scalar1);
                 bounds.roundOut(&ibounds);
@@ -229,36 +237,46 @@ int generate_lines_and_quads(const SkPath& path,
                     pts[1] = devPts[1];
                 }
                 break;
-            case kQuadratic_PathCmd:
-                SkPoint::Offset(pts, 3, translate);
-                m.mapPoints(devPts, pts, 3);
-                bounds.setBounds(devPts, 3);
-                bounds.outset(SK_Scalar1, SK_Scalar1);
-                bounds.roundOut(&ibounds);
-                if (SkIRect::Intersects(devClipBounds, ibounds)) {
-                    int subdiv = num_quad_subdivs(devPts);
-                    GrAssert(subdiv >= -1);
-                    if (-1 == subdiv) {
-                        SkPoint* pts = lines->push_back_n(4);
-                        pts[0] = devPts[0];
-                        pts[1] = devPts[1];
-                        pts[2] = devPts[1];
-                        pts[3] = devPts[2];
-                    } else {
-                        // when in perspective keep quads in src space
-                        SkPoint* qPts = persp ? pts : devPts;
-                        SkPoint* pts = quads->push_back_n(3);
-                        pts[0] = qPts[0];
-                        pts[1] = qPts[1];
-                        pts[2] = qPts[2];
-                        quadSubdivCnts->push_back() = subdiv;
-                        totalQuadCount += 1 << subdiv;
+            case SkPath::kQuad_Verb: {
+                SkPoint choppedPts[5];
+                // Chopping the quad helps when the quad is either degenerate or nearly degenerate.
+                // When it is degenerate it allows the approximation with lines to work since the
+                // chop point (if there is one) will be at the parabola's vertex. In the nearly
+                // degenerate the QuadUVMatrix computed for the points is almost singular which
+                // can cause rendering artifacts.
+                int n = SkChopQuadAtMaxCurvature(pathPts, choppedPts);
+                for (int i = 0; i < n; ++i) {
+                    SkPoint* quadPts = choppedPts + i * 2;
+                    m.mapPoints(devPts, quadPts, 3);
+                    bounds.setBounds(devPts, 3);
+                    bounds.outset(SK_Scalar1, SK_Scalar1);
+                    bounds.roundOut(&ibounds);
+
+                    if (SkIRect::Intersects(devClipBounds, ibounds)) {
+                        int subdiv = num_quad_subdivs(devPts);
+                        GrAssert(subdiv >= -1);
+                        if (-1 == subdiv) {
+                            SkPoint* pts = lines->push_back_n(4);
+                            pts[0] = devPts[0];
+                            pts[1] = devPts[1];
+                            pts[2] = devPts[1];
+                            pts[3] = devPts[2];
+                        } else {
+                            // when in perspective keep quads in src space
+                            SkPoint* qPts = persp ? quadPts : devPts;
+                            SkPoint* pts = quads->push_back_n(3);
+                            pts[0] = qPts[0];
+                            pts[1] = qPts[1];
+                            pts[2] = qPts[2];
+                            quadSubdivCnts->push_back() = subdiv;
+                            totalQuadCount += 1 << subdiv;
+                        }
                     }
                 }
                 break;
-            case kCubic_PathCmd:
-                SkPoint::Offset(pts, 4, translate);
-                m.mapPoints(devPts, pts, 4);
+            }
+            case SkPath::kCubic_Verb:
+                m.mapPoints(devPts, pathPts, 4);
                 bounds.setBounds(devPts, 4);
                 bounds.outset(SK_Scalar1, SK_Scalar1);
                 bounds.roundOut(&ibounds);
@@ -272,7 +290,7 @@ int generate_lines_and_quads(const SkPath& path,
                         SkScalar tolScale =
                             GrPathUtils::scaleToleranceToSrc(SK_Scalar1, m,
                                                              path.getBounds());
-                        GrPathUtils::convertCubicToQuads(pts, tolScale, false, kDummyDir, &q);
+                        GrPathUtils::convertCubicToQuads(pathPts, tolScale, false, kDummyDir, &q);
                     } else {
                         GrPathUtils::convertCubicToQuads(devPts, SK_Scalar1, false, kDummyDir, &q);
                     }
@@ -314,9 +332,9 @@ int generate_lines_and_quads(const SkPath& path,
                     }
                 }
                 break;
-            case kClose_PathCmd:
+            case SkPath::kClose_Verb:
                 break;
-            case kEnd_PathCmd:
+            case SkPath::kDone_Verb:
                 return totalQuadCount;
         }
     }
@@ -326,13 +344,13 @@ struct Vertex {
     GrPoint fPos;
     union {
         struct {
-            GrScalar fA;
-            GrScalar fB;
-            GrScalar fC;
+            SkScalar fA;
+            SkScalar fB;
+            SkScalar fC;
         } fLine;
         GrVec   fQuadCoord;
         struct {
-            GrScalar fBogus[4];
+            SkScalar fBogus[4];
         };
     };
 };
@@ -356,8 +374,9 @@ void intersect_lines(const SkPoint& ptA, const SkVector& normA,
     result->fY = SkScalarMul(result->fY, wInv);
 }
 
-void bloat_quad(const SkPoint qpts[3], const GrMatrix* toDevice,
-                const GrMatrix* toSrc, Vertex verts[kVertsPerQuad]) {
+void bloat_quad(const SkPoint qpts[3], const SkMatrix* toDevice,
+                const SkMatrix* toSrc, Vertex verts[kVertsPerQuad],
+                SkRect* devBounds) {
     GrAssert(!toDevice == !toSrc);
     // original quad is specified by tri a,b,c
     SkPoint a = qpts[0];
@@ -424,7 +443,10 @@ void bloat_quad(const SkPoint qpts[3], const GrMatrix* toDevice,
     c1.fPos = c;
     c1.fPos -= cbN;
 
+    // This point may not be within 1 pixel of a control point. We update the bounding box to
+    // include it.
     intersect_lines(a0.fPos, abN, c0.fPos, cbN, &b0.fPos);
+    devBounds->growToInclude(b0.fPos.fX, b0.fPos.fY);
 
     if (toSrc) {
         toSrc->mapPointsWithStride(&verts[0].fPos, sizeof(Vertex), kVertsPerQuad);
@@ -434,17 +456,18 @@ void bloat_quad(const SkPoint qpts[3], const GrMatrix* toDevice,
 
 void add_quads(const SkPoint p[3],
                int subdiv,
-               const GrMatrix* toDevice,
-               const GrMatrix* toSrc,
-               Vertex** vert) {
+               const SkMatrix* toDevice,
+               const SkMatrix* toSrc,
+               Vertex** vert,
+               SkRect* devBounds) {
     GrAssert(subdiv >= 0);
     if (subdiv) {
         SkPoint newP[5];
         SkChopQuadAtHalf(p, newP);
-        add_quads(newP + 0, subdiv-1, toDevice, toSrc, vert);
-        add_quads(newP + 2, subdiv-1, toDevice, toSrc, vert);
+        add_quads(newP + 0, subdiv-1, toDevice, toSrc, vert, devBounds);
+        add_quads(newP + 2, subdiv-1, toDevice, toSrc, vert, devBounds);
     } else {
-        bloat_quad(p, toDevice, toSrc, *vert);
+        bloat_quad(p, toDevice, toSrc, *vert, devBounds);
         *vert += kVertsPerQuad;
     }
 }
@@ -462,16 +485,7 @@ void add_line(const SkPoint p[2],
     if (orthVec.setLength(SK_Scalar1)) {
         orthVec.setOrthog(orthVec);
 
-        // the values we pass down to the frag shader
-        // have to be in y-points-up space;
-        SkVector normal;
-        normal.fX = orthVec.fX;
-        normal.fY = -orthVec.fY;
-        SkPoint aYDown;
-        aYDown.fX = a.fX;
-        aYDown.fY = rtHeight - a.fY;
-
-        SkScalar lineC = -(aYDown.dot(normal));
+        SkScalar lineC = -(a.dot(orthVec));
         for (int i = 0; i < kVertsPerLineSeg; ++i) {
             (*vert)[i].fPos = (i < 2) ? a : b;
             if (0 == i || 3 == i) {
@@ -479,8 +493,8 @@ void add_line(const SkPoint p[2],
             } else {
                 (*vert)[i].fPos += orthVec;
             }
-            (*vert)[i].fLine.fA = normal.fX;
-            (*vert)[i].fLine.fB = normal.fY;
+            (*vert)[i].fLine.fA = orthVec.fX;
+            (*vert)[i].fLine.fB = orthVec.fY;
             (*vert)[i].fLine.fC = lineC;
         }
         if (NULL != toSrc) {
@@ -501,47 +515,253 @@ void add_line(const SkPoint p[2],
 
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * The output of this effect is a hairline edge for quadratics.
+ * Quadratic specified by 0=u^2-v canonical coords. u and v are the first
+ * two components of the vertex attribute. Uses unsigned distance.
+ * Coverage is min(0, 1-distance). 3rd & 4th component unused.
+ * Requires shader derivative instruction support.
+ */
+class HairQuadEdgeEffect : public GrEffect {
+public:
+
+    static GrEffectRef* Create() {
+        GR_CREATE_STATIC_EFFECT(gHairQuadEdgeEffect, HairQuadEdgeEffect, ());
+        gHairQuadEdgeEffect->ref();
+        return gHairQuadEdgeEffect;
+    }
+
+    virtual ~HairQuadEdgeEffect() {}
+
+    static const char* Name() { return "HairQuadEdge"; }
+
+    virtual void getConstantColorComponents(GrColor* color,
+                                            uint32_t* validFlags) const SK_OVERRIDE {
+        *validFlags = 0;
+    }
+
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE {
+        return GrTBackendEffectFactory<HairQuadEdgeEffect>::getInstance();
+    }
+
+    class GLEffect : public GrGLEffect {
+    public:
+        GLEffect(const GrBackendEffectFactory& factory, const GrDrawEffect&)
+            : INHERITED (factory) {}
+
+        virtual void emitCode(GrGLShaderBuilder* builder,
+                              const GrDrawEffect& drawEffect,
+                              EffectKey key,
+                              const char* outputColor,
+                              const char* inputColor,
+                              const TextureSamplerArray& samplers) SK_OVERRIDE {
+            const char *vsName, *fsName;
+            const SkString* attrName =
+                builder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
+            builder->fsCodeAppendf("\t\tfloat edgeAlpha;\n");
+
+            SkAssertResult(builder->enableFeature(
+                                              GrGLShaderBuilder::kStandardDerivatives_GLSLFeature));
+            builder->addVarying(kVec4f_GrSLType, "HairQuadEdge", &vsName, &fsName);
+
+            builder->fsCodeAppendf("\t\tvec2 duvdx = dFdx(%s.xy);\n", fsName);
+            builder->fsCodeAppendf("\t\tvec2 duvdy = dFdy(%s.xy);\n", fsName);
+            builder->fsCodeAppendf("\t\tvec2 gF = vec2(2.0*%s.x*duvdx.x - duvdx.y,\n"
+                                   "\t\t               2.0*%s.x*duvdy.x - duvdy.y);\n",
+                                   fsName, fsName);
+            builder->fsCodeAppendf("\t\tedgeAlpha = (%s.x*%s.x - %s.y);\n", fsName, fsName,
+                                   fsName);
+            builder->fsCodeAppend("\t\tedgeAlpha = sqrt(edgeAlpha*edgeAlpha / dot(gF, gF));\n");
+            builder->fsCodeAppend("\t\tedgeAlpha = max(1.0 - edgeAlpha, 0.0);\n");
+
+            SkString modulate;
+            GrGLSLModulatef<4>(&modulate, inputColor, "edgeAlpha");
+            builder->fsCodeAppendf("\t%s = %s;\n", outputColor, modulate.c_str());
+
+            builder->vsCodeAppendf("\t%s = %s;\n", vsName, attrName->c_str());
+        }
+
+        static inline EffectKey GenKey(const GrDrawEffect& drawEffect, const GrGLCaps&) {
+            return 0x0;
+        }
+
+        virtual void setData(const GrGLUniformManager&, const GrDrawEffect&) SK_OVERRIDE {}
+
+    private:
+        typedef GrGLEffect INHERITED;
+    };
+
+private:
+    HairQuadEdgeEffect() {
+        this->addVertexAttrib(kVec4f_GrSLType);
+    }
+
+    virtual bool onIsEqual(const GrEffect& other) const SK_OVERRIDE {
+        return true;
+    }
+
+    GR_DECLARE_EFFECT_TEST;
+
+    typedef GrEffect INHERITED;
+};
+
+GR_DEFINE_EFFECT_TEST(HairQuadEdgeEffect);
+
+GrEffectRef* HairQuadEdgeEffect::TestCreate(SkMWCRandom* random,
+                                            GrContext*,
+                                            const GrDrawTargetCaps& caps,
+                                            GrTexture*[]) {
+    // Doesn't work without derivative instructions.
+    return caps.shaderDerivativeSupport() ? HairQuadEdgeEffect::Create() : NULL;}
+
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * The output of this effect is a 1-pixel wide line.
+ * Input is 2D implicit device coord line eq (a*x + b*y +c = 0). 4th component unused.
+ */
+class HairLineEdgeEffect : public GrEffect {
+public:
+
+    static GrEffectRef* Create() {
+        GR_CREATE_STATIC_EFFECT(gHairLineEdge, HairLineEdgeEffect, ());
+        gHairLineEdge->ref();
+        return gHairLineEdge;
+    }
+
+    virtual ~HairLineEdgeEffect() {}
+
+    static const char* Name() { return "HairLineEdge"; }
+
+    virtual void getConstantColorComponents(GrColor* color,
+                                            uint32_t* validFlags) const SK_OVERRIDE {
+        *validFlags = 0;
+    }
+
+    virtual const GrBackendEffectFactory& getFactory() const SK_OVERRIDE {
+        return GrTBackendEffectFactory<HairLineEdgeEffect>::getInstance();
+    }
+
+    class GLEffect : public GrGLEffect {
+    public:
+        GLEffect(const GrBackendEffectFactory& factory, const GrDrawEffect&)
+            : INHERITED (factory) {}
+
+        virtual void emitCode(GrGLShaderBuilder* builder,
+                              const GrDrawEffect& drawEffect,
+                              EffectKey key,
+                              const char* outputColor,
+                              const char* inputColor,
+                              const TextureSamplerArray& samplers) SK_OVERRIDE {
+            const char *vsName, *fsName;
+            const SkString* attrName =
+                builder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0]);
+            builder->fsCodeAppendf("\t\tfloat edgeAlpha;\n");
+
+            builder->addVarying(kVec4f_GrSLType, "HairLineEdge", &vsName, &fsName);
+
+            builder->fsCodeAppendf("\t\tedgeAlpha = abs(dot(vec3(%s.xy,1), %s.xyz));\n",
+                                   builder->fragmentPosition(), fsName);
+            builder->fsCodeAppendf("\t\tedgeAlpha = max(1.0 - edgeAlpha, 0.0);\n");
+
+            SkString modulate;
+            GrGLSLModulatef<4>(&modulate, inputColor, "edgeAlpha");
+            builder->fsCodeAppendf("\t%s = %s;\n", outputColor, modulate.c_str());
+
+            builder->vsCodeAppendf("\t%s = %s;\n", vsName, attrName->c_str());
+        }
+
+        static inline EffectKey GenKey(const GrDrawEffect& drawEffect, const GrGLCaps&) {
+            return 0x0;
+        }
+
+        virtual void setData(const GrGLUniformManager&, const GrDrawEffect&) SK_OVERRIDE {}
+
+    private:
+        typedef GrGLEffect INHERITED;
+    };
+
+private:
+    HairLineEdgeEffect() {
+        this->addVertexAttrib(kVec4f_GrSLType);
+        this->setWillReadFragmentPosition();
+    }
+
+    virtual bool onIsEqual(const GrEffect& other) const SK_OVERRIDE {
+        return true;
+    }
+
+    GR_DECLARE_EFFECT_TEST;
+
+    typedef GrEffect INHERITED;
+};
+
+GR_DEFINE_EFFECT_TEST(HairLineEdgeEffect);
+
+GrEffectRef* HairLineEdgeEffect::TestCreate(SkMWCRandom* random,
+                                            GrContext*,
+                                            const GrDrawTargetCaps& caps,
+                                            GrTexture*[]) {
+    return HairLineEdgeEffect::Create();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+namespace {
+
+// position + edge
+extern const GrVertexAttrib gHairlineAttribs[] = {
+    {kVec2f_GrVertexAttribType, 0,                  kPosition_GrVertexAttribBinding},
+    {kVec4f_GrVertexAttribType, sizeof(GrPoint),    kEffect_GrVertexAttribBinding}
+};
+
+};
+
 bool GrAAHairLinePathRenderer::createGeom(
             const SkPath& path,
-            const GrVec* translate,
             GrDrawTarget* target,
             int* lineCnt,
             int* quadCnt,
-            GrDrawTarget::AutoReleaseGeometry* arg) {
-    const GrDrawState& drawState = target->getDrawState();
-    int rtHeight = drawState.getRenderTarget()->height();
+            GrDrawTarget::AutoReleaseGeometry* arg,
+            SkRect* devBounds) {
+    GrDrawState* drawState = target->drawState();
+    int rtHeight = drawState->getRenderTarget()->height();
 
     GrIRect devClipBounds;
-    target->getClip()->getConservativeBounds(drawState.getRenderTarget(),
-                                             &devClipBounds);
+    target->getClip()->getConservativeBounds(drawState->getRenderTarget(), &devClipBounds);
 
-    GrVertexLayout layout = GrDrawTarget::kEdge_VertexLayoutBit;
-    GrMatrix viewM = drawState.getViewMatrix();
+    SkMatrix viewM = drawState->getViewMatrix();
+
+    // All the vertices that we compute are within 1 of path control points with the exception of
+    // one of the bounding vertices for each quad. The add_quads() function will update the bounds
+    // for each quad added.
+    *devBounds = path.getBounds();
+    viewM.mapRect(devBounds);
+    devBounds->outset(SK_Scalar1, SK_Scalar1);
 
     PREALLOC_PTARRAY(128) lines;
     PREALLOC_PTARRAY(128) quads;
     IntArray qSubdivs;
-    static const GrVec gZeroVec = {0, 0};
-    if (NULL == translate) {
-        translate = &gZeroVec;
-    }
-    *quadCnt = generate_lines_and_quads(path, viewM, *translate, devClipBounds,
+    *quadCnt = generate_lines_and_quads(path, viewM, devClipBounds,
                                         &lines, &quads, &qSubdivs);
 
     *lineCnt = lines.count() / 2;
     int vertCnt = kVertsPerLineSeg * *lineCnt + kVertsPerQuad * *quadCnt;
 
-    GrAssert(sizeof(Vertex) == GrDrawTarget::VertexSize(layout));
+    target->drawState()->setVertexAttribs<gHairlineAttribs>(SK_ARRAY_COUNT(gHairlineAttribs));
+    GrAssert(sizeof(Vertex) == target->getDrawState().getVertexSize());
 
-    if (!arg->set(target, layout, vertCnt, 0)) {
+    if (!arg->set(target, vertCnt, 0)) {
         return false;
     }
 
     Vertex* verts = reinterpret_cast<Vertex*>(arg->vertices());
 
-    const GrMatrix* toDevice = NULL;
-    const GrMatrix* toSrc = NULL;
-    GrMatrix ivm;
+    const SkMatrix* toDevice = NULL;
+    const SkMatrix* toSrc = NULL;
+    SkMatrix ivm;
 
     if (viewM.hasPerspective()) {
         if (viewM.invert(&ivm)) {
@@ -557,23 +777,23 @@ bool GrAAHairLinePathRenderer::createGeom(
     int unsubdivQuadCnt = quads.count() / 3;
     for (int i = 0; i < unsubdivQuadCnt; ++i) {
         GrAssert(qSubdivs[i] >= 0);
-        add_quads(&quads[3*i], qSubdivs[i], toDevice, toSrc, &verts);
+        add_quads(&quads[3*i], qSubdivs[i], toDevice, toSrc, &verts, devBounds);
     }
 
     return true;
 }
 
 bool GrAAHairLinePathRenderer::canDrawPath(const SkPath& path,
-                                           GrPathFill fill,
+                                           const SkStrokeRec& stroke,
                                            const GrDrawTarget* target,
                                            bool antiAlias) const {
-    if (fill != kHairLine_GrPathFill || !antiAlias) {
+    if (!stroke.isHairlineStyle() || !antiAlias) {
         return false;
     }
 
     static const uint32_t gReqDerivMask = SkPath::kCubic_SegmentMask |
                                           SkPath::kQuad_SegmentMask;
-    if (!target->getCaps().shaderDerivativeSupport() &&
+    if (!target->caps()->shaderDerivativeSupport() &&
         (gReqDerivMask & path.getSegmentMasks())) {
         return false;
     }
@@ -581,66 +801,105 @@ bool GrAAHairLinePathRenderer::canDrawPath(const SkPath& path,
 }
 
 bool GrAAHairLinePathRenderer::onDrawPath(const SkPath& path,
-                                          GrPathFill fill,
-                                          const GrVec* translate,
+                                          const SkStrokeRec&,
                                           GrDrawTarget* target,
                                           bool antiAlias) {
 
     int lineCnt;
     int quadCnt;
     GrDrawTarget::AutoReleaseGeometry arg;
+    SkRect devBounds;
+
     if (!this->createGeom(path,
-                          translate,
                           target,
                           &lineCnt,
                           &quadCnt,
-                          &arg)) {
+                          &arg,
+                          &devBounds)) {
         return false;
     }
 
     GrDrawTarget::AutoStateRestore asr;
-    GrDrawState* drawState = target->drawState();
-    if (!drawState->getViewMatrix().hasPerspective()) {
-        // we are going to whack the view matrix to identity to remove
-        // perspective.
-        asr.set(target,
-                GrDrawTarget::kPreserve_ASRInit);
-        drawState = target->drawState();
-        if (!drawState->preConcatSamplerMatricesWithInverse(drawState->getViewMatrix())) {
-            return false;
-        }
-        drawState->viewMatrix()->reset();
-    }
 
+    // createGeom transforms the geometry to device space when the matrix does not have
+    // perspective.
+    if (target->getDrawState().getViewMatrix().hasPerspective()) {
+        asr.set(target, GrDrawTarget::kPreserve_ASRInit);
+    } else if (!asr.setIdentity(target, GrDrawTarget::kPreserve_ASRInit)) {
+        return false;
+    }
+    GrDrawState* drawState = target->drawState();
 
     // TODO: See whether rendering lines as degenerate quads improves perf
     // when we have a mix
+
+    enum {
+        // the edge effects share this stage with glyph rendering
+        // (kGlyphMaskStage in GrTextContext) && SW path rendering
+        // (kPathMaskStage in GrSWMaskHelper)
+        kEdgeEffectStage = GrPaint::kTotalStages,
+    };
+    static const int kEdgeAttrIndex = 1;
+
+    GrEffectRef* hairLineEffect = HairLineEdgeEffect::Create();
+    GrEffectRef* hairQuadEffect = HairQuadEdgeEffect::Create();
+
+    // Check devBounds
+#if GR_DEBUG
+    SkRect tolDevBounds = devBounds;
+    tolDevBounds.outset(SK_Scalar1 / 10000, SK_Scalar1 / 10000);
+    SkRect actualBounds;
+    Vertex* verts = reinterpret_cast<Vertex*>(arg.vertices());
+    int vCount = kVertsPerLineSeg * lineCnt + kVertsPerQuad * quadCnt;
+    bool first = true;
+    for (int i = 0; i < vCount; ++i) {
+        SkPoint pos = verts[i].fPos;
+        // This is a hack to workaround the fact that we move some degenerate segments offscreen.
+        if (SK_ScalarMax == pos.fX) {
+            continue;
+        }
+        drawState->getViewMatrix().mapPoints(&pos, 1);
+        if (first) {
+            actualBounds.set(pos.fX, pos.fY, pos.fX, pos.fY);
+            first = false;
+        } else {
+            actualBounds.growToInclude(pos.fX, pos.fY);
+        }
+    }
+    if (!first) {
+        GrAssert(tolDevBounds.contains(actualBounds));
+    }
+#endif
+
     target->setIndexSourceToBuffer(fLinesIndexBuffer);
     int lines = 0;
     int nBufLines = fLinesIndexBuffer->maxQuads();
+    drawState->setEffect(kEdgeEffectStage, hairLineEffect, kEdgeAttrIndex)->unref();
     while (lines < lineCnt) {
         int n = GrMin(lineCnt - lines, nBufLines);
-        drawState->setVertexEdgeType(GrDrawState::kHairLine_EdgeType);
         target->drawIndexed(kTriangles_GrPrimitiveType,
                             kVertsPerLineSeg*lines,    // startV
                             0,                         // startI
                             kVertsPerLineSeg*n,        // vCount
-                            kIdxsPerLineSeg*n);        // iCount
+                            kIdxsPerLineSeg*n,
+                            &devBounds);        // iCount
         lines += n;
     }
 
     target->setIndexSourceToBuffer(fQuadsIndexBuffer);
     int quads = 0;
+    drawState->setEffect(kEdgeEffectStage, hairQuadEffect, kEdgeAttrIndex)->unref();
     while (quads < quadCnt) {
         int n = GrMin(quadCnt - quads, kNumQuadsInIdxBuffer);
-        drawState->setVertexEdgeType(GrDrawState::kHairQuad_EdgeType);
         target->drawIndexed(kTriangles_GrPrimitiveType,
                             4 * lineCnt + kVertsPerQuad*quads, // startV
                             0,                                 // startI
                             kVertsPerQuad*n,                   // vCount
-                            kIdxsPerQuad*n);                   // iCount
+                            kIdxsPerQuad*n,                    // iCount
+                            &devBounds);
         quads += n;
     }
+    target->resetIndexSource();
+
     return true;
 }
-

@@ -5,11 +5,11 @@
  * found in the LICENSE file.
  */
 
+#include "SkImageDecoder.h"
 #include "SkImage_Base.h"
 #include "SkBitmap.h"
 #include "SkCanvas.h"
 #include "SkData.h"
-#include "../images/SkImageDecoder.h"
 
 class SkImage_Codec : public SkImage_Base {
 public:
@@ -64,4 +64,3 @@ SkImage* SkImage::NewEncodedData(SkData* data) {
 
     return SkNEW_ARGS(SkImage_Codec, (data, bitmap.width(), bitmap.height()));
 }
-

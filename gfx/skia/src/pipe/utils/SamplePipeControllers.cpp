@@ -12,10 +12,11 @@
 #include "SkGPipe.h"
 #include "SkMatrix.h"
 
-PipeController::PipeController(SkCanvas* target)
+PipeController::PipeController(SkCanvas* target, SkPicture::InstallPixelRefProc proc)
 :fReader(target) {
     fBlock = NULL;
     fBlockSize = fBytesWritten = 0;
+    fReader.setBitmapDecoder(proc);
 }
 
 PipeController::~PipeController() {
@@ -40,8 +41,9 @@ void PipeController::notifyWritten(size_t bytes) {
 ////////////////////////////////////////////////////////////////////////////////
 
 TiledPipeController::TiledPipeController(const SkBitmap& bitmap,
+                                         SkPicture::InstallPixelRefProc proc,
                                          const SkMatrix* initial)
-: INHERITED(NULL) {
+: INHERITED(NULL, proc) {
     int32_t top = 0;
     int32_t bottom;
     int32_t height = bitmap.height() / NumberOfTiles;
@@ -51,7 +53,7 @@ TiledPipeController::TiledPipeController(const SkBitmap& bitmap,
         rect.setLTRB(0, top, bitmap.width(), bottom);
         top = bottom;
 
-        bool extracted = bitmap.extractSubset(&fBitmaps[i], rect);
+        SkDEBUGCODE(bool extracted = )bitmap.extractSubset(&fBitmaps[i], rect);
         SkASSERT(extracted);
         SkDevice* device = new SkDevice(fBitmaps[i]);
         SkCanvas* canvas = new SkCanvas(device);
@@ -65,6 +67,7 @@ TiledPipeController::TiledPipeController(const SkBitmap& bitmap,
             fReader.setCanvas(canvas);
         } else {
             fReaders[i - 1].setCanvas(canvas);
+            fReaders[i - 1].setBitmapDecoder(proc);
         }
         canvas->unref();
     }
@@ -92,7 +95,7 @@ void* ThreadSafePipeController::requestBlock(size_t minRequest, size_t *actual) 
         PipeBlock previousBloc(fBlock, fBytesWritten);
         fBlockList.push(previousBloc);
     }
-    int32_t blockSize = SkMax32(minRequest, kMinBlockSize);
+    int32_t blockSize = SkMax32(SkToS32(minRequest), kMinBlockSize);
     fBlock = fAllocator.allocThrow(blockSize);
     fBytesWritten = 0;
     *actual = blockSize;
@@ -103,7 +106,7 @@ void ThreadSafePipeController::notifyWritten(size_t bytes) {
     fBytesWritten += bytes;
 }
 
-void ThreadSafePipeController::playback(SkCanvas* target) {
+void ThreadSafePipeController::draw(SkCanvas* target) {
     SkGPipeReader reader(target);
     for (int currentBlock = 0; currentBlock < fBlockList.count(); currentBlock++ ) {
         reader.playback(fBlockList[currentBlock].fBlock, fBlockList[currentBlock].fBytes);

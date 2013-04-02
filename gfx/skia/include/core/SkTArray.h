@@ -28,13 +28,13 @@ inline void copyAndDelete(SkTArray<T, true>* self, char* newMemArray) {
 template<typename T>
 inline void copy(SkTArray<T, false>* self, const T* array) {
     for (int i = 0; i < self->fCount; ++i) {
-        new (self->fItemArray + i) T(array[i]);
+        SkNEW_PLACEMENT_ARGS(self->fItemArray + i, T, (array[i]));
     }
 }
 template<typename T>
 inline void copyAndDelete(SkTArray<T, false>* self, char* newMemArray) {
     for (int i = 0; i < self->fCount; ++i) {
-        new (newMemArray + sizeof(T) * i) T(self->fItemArray[i]);
+        SkNEW_PLACEMENT_ARGS(newMemArray + sizeof(T) * i, T, (self->fItemArray[i]));
         self->fItemArray[i].~T();
     }
 }
@@ -112,6 +112,38 @@ public:
     void reset() { this->pop_back_n(fCount); }
 
     /**
+     * Resets to count() = n newly constructed T objects.
+     */
+    void reset(int n) {
+        SkASSERT(n >= 0);
+        for (int i = 0; i < fCount; ++i) {
+            fItemArray[i].~T();
+        }
+        // set fCount to 0 before calling checkRealloc so that no copy cons. are called.
+        fCount = 0;
+        this->checkRealloc(n);
+        fCount = n;
+        for (int i = 0; i < fCount; ++i) {
+            SkNEW_PLACEMENT(fItemArray + i, T);
+        }
+    }
+
+    /**
+     * Resets to a copy of a C array.
+     */
+    void reset(const T* array, int count) {
+        for (int i = 0; i < fCount; ++i) {
+            fItemArray[i].~T();
+        }
+        int delta = count - fCount;
+        this->checkRealloc(delta);
+        fCount = count;
+        for (int i = 0; i < count; ++i) {
+            SkTArrayExt::copy(this, array);
+        }
+    }
+
+    /**
      * Number of elements in the array.
      */
     int count() const { return fCount; }
@@ -127,8 +159,8 @@ public:
      * elements.
      */
     T& push_back() {
-        checkRealloc(1);
-        new ((char*)fMemArray+sizeof(T)*fCount) T;
+        this->checkRealloc(1);
+        SkNEW_PLACEMENT((char*)fMemArray + sizeof(T) * fCount, T);
         ++fCount;
         return fItemArray[fCount-1];
     }
@@ -137,8 +169,8 @@ public:
      * Version of above that uses a copy constructor to initialize the new item
      */
     T& push_back(const T& t) {
-        checkRealloc(1);
-        new ((char*)fMemArray+sizeof(T)*fCount) T(t);
+        this->checkRealloc(1);
+        SkNEW_PLACEMENT_ARGS((char*)fMemArray + sizeof(T) * fCount, T, (t));
         ++fCount;
         return fItemArray[fCount-1];
     }
@@ -150,9 +182,9 @@ public:
      */
     T* push_back_n(int n) {
         SkASSERT(n >= 0);
-        checkRealloc(n);
+        this->checkRealloc(n);
         for (int i = 0; i < n; ++i) {
-            new (fItemArray + fCount + i) T;
+            SkNEW_PLACEMENT(fItemArray + fCount + i, T);
         }
         fCount += n;
         return fItemArray + fCount - n;
@@ -164,9 +196,9 @@ public:
      */
     T* push_back_n(int n, const T& t) {
         SkASSERT(n >= 0);
-        checkRealloc(n);
+        this->checkRealloc(n);
         for (int i = 0; i < n; ++i) {
-            new (fItemArray + fCount + i) T(t);
+            SkNEW_PLACEMENT_ARGS(fItemArray + fCount + i, T, (t));
         }
         fCount += n;
         return fItemArray + fCount - n;
@@ -178,9 +210,9 @@ public:
      */
     T* push_back_n(int n, const T t[]) {
         SkASSERT(n >= 0);
-        checkRealloc(n);
+        this->checkRealloc(n);
         for (int i = 0; i < n; ++i) {
-            new (fItemArray + fCount + i) T(t[i]);
+            SkNEW_PLACEMENT_ARGS(fItemArray + fCount + i, T, (t[i]));
         }
         fCount += n;
         return fItemArray + fCount - n;
@@ -193,7 +225,7 @@ public:
         SkASSERT(fCount > 0);
         --fCount;
         fItemArray[fCount].~T();
-        checkRealloc(0);
+        this->checkRealloc(0);
     }
 
     /**
@@ -206,7 +238,7 @@ public:
         for (int i = 0; i < n; ++i) {
             fItemArray[i].~T();
         }
-        checkRealloc(0);
+        this->checkRealloc(0);
     }
 
     /**
@@ -217,13 +249,26 @@ public:
         SkASSERT(newCount >= 0);
 
         if (newCount > fCount) {
-            push_back_n(newCount - fCount);
+            this->push_back_n(newCount - fCount);
         } else if (newCount < fCount) {
-            pop_back_n(fCount - newCount);
+            this->pop_back_n(fCount - newCount);
         }
     }
 
-    /**
+    T* begin() {
+        return fItemArray;
+    }
+    const T* begin() const {
+        return fItemArray;
+    }
+    T* end() {
+        return fItemArray ? fItemArray + fCount : NULL;
+    }
+    const T* end() const {
+        return fItemArray ? fItemArray + fCount : NULL;;
+    }
+
+   /**
      * Get the i^th element.
      */
     T& operator[] (int i) {
@@ -265,6 +310,23 @@ public:
         SkASSERT(i >= 0);
         SkASSERT(i < fCount);
         return fItemArray[fCount - i - 1];
+    }
+
+    bool operator==(const SkTArray<T, MEM_COPY>& right) const {
+        int leftCount = this->count();
+        if (leftCount != right.count()) {
+            return false;
+        }
+        for (int index = 0; index < leftCount; ++index) {
+            if (fItemArray[index] != right.fItemArray[index]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool operator!=(const SkTArray<T, MEM_COPY>& right) const {
+        return !(*this == right);
     }
 
 protected:
@@ -375,10 +437,10 @@ private:
 /**
  * Subclass of SkTArray that contains a preallocated memory block for the array.
  */
-template <int N, typename T, bool DATA_TYPE = false>
-class SkSTArray : public SkTArray<T, DATA_TYPE> {
+template <int N, typename T, bool MEM_COPY = false>
+class SkSTArray : public SkTArray<T, MEM_COPY> {
 private:
-    typedef SkTArray<T, DATA_TYPE> INHERITED;
+    typedef SkTArray<T, MEM_COPY> INHERITED;
 
 public:
     SkSTArray() : INHERITED(&fStorage) {
@@ -410,4 +472,3 @@ private:
 };
 
 #endif
-
