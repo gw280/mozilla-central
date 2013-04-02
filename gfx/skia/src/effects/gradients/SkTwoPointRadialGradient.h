@@ -15,16 +15,13 @@ class SkTwoPointRadialGradient : public SkGradientShaderBase {
 public:
     SkTwoPointRadialGradient(const SkPoint& start, SkScalar startRadius,
                               const SkPoint& end, SkScalar endRadius,
-                              const SkColor colors[], const SkScalar pos[],
-                              int colorCount, SkShader::TileMode mode,
-                              SkUnitMapper* mapper);
+                              const Descriptor&);
 
     virtual BitmapType asABitmap(SkBitmap* bitmap,
                                  SkMatrix* matrix,
                                  TileMode* xy) const SK_OVERRIDE;
     virtual GradientType asAGradient(GradientInfo* info) const SK_OVERRIDE;
-    virtual GrCustomStage* asNewCustomStage(GrContext* context,
-        GrSamplerState* sampler) const SK_OVERRIDE;
+    virtual GrEffectRef* asNewEffect(GrContext* context, const SkPaint&) const SK_OVERRIDE;
 
     virtual void shadeSpan(int x, int y, SkPMColor* dstCParam,
                            int count) SK_OVERRIDE;
@@ -36,6 +33,7 @@ public:
     SkScalar getStartRadius() const { return fStartRadius; }
     SkScalar getDiffRadius() const { return fDiffRadius; }
 
+    SK_DEVELOPER_TO_STRING()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkTwoPointRadialGradient)
 
 protected:
@@ -55,4 +53,3 @@ private:
 };
 
 #endif
-

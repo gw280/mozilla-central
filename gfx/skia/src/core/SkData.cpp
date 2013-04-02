@@ -7,6 +7,7 @@
 
 #include "SkData.h"
 #include "SkFlattenableBuffers.h"
+#include "SkOSFile.h"
 
 SK_DEFINE_INST_COUNT(SkData)
 
@@ -81,6 +82,31 @@ SkData* SkData::NewWithProc(const void* data, size_t length,
     return new SkData(data, length, proc, context);
 }
 
+// assumes fPtr was allocated with sk_fmmap
+static void sk_mmap_releaseproc(const void* addr, size_t length, void*) {
+    sk_fmunmap(addr, length);
+}
+
+SkData* SkData::NewFromFILE(SkFILE* f) {
+    size_t size;
+    void* addr = sk_fmmap(f, &size);
+    if (NULL == addr) {
+        return NULL;
+    }
+
+    return SkData::NewWithProc(addr, size, sk_mmap_releaseproc, NULL);
+}
+
+SkData* SkData::NewFromFD(int fd) {
+    size_t size;
+    void* addr = sk_fdmmap(fd, &size);
+    if (NULL == addr) {
+        return NULL;
+    }
+
+    return SkData::NewWithProc(addr, size, sk_mmap_releaseproc, NULL);
+}
+
 // assumes context is a SkData
 static void sk_dataref_releaseproc(const void*, size_t, void* context) {
     SkData* src = reinterpret_cast<SkData*>(context);
@@ -140,8 +166,6 @@ SkData::SkData(SkFlattenableReadBuffer& buffer) {
 
     buffer.readByteArray(const_cast<void*>(fPtr));
 }
-
-SK_DEFINE_FLATTENABLE_REGISTRAR(SkData)
 
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
@@ -302,5 +326,3 @@ SkDataSet* SkDataSet::NewEmpty() {
     gEmptySet->ref();
     return gEmptySet;
 }
-
-SK_DEFINE_FLATTENABLE_REGISTRAR(SkDataSet)

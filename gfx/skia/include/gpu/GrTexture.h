@@ -10,9 +10,9 @@
 #define GrTexture_DEFINED
 
 #include "GrSurface.h"
-#include "GrCacheID.h"
+#include "SkPoint.h"
+#include "GrRenderTarget.h"
 
-class GrRenderTarget;
 class GrResourceKey;
 class GrTextureParams;
 
@@ -20,8 +20,6 @@ class GrTexture : public GrSurface {
 
 public:
     SK_DECLARE_INST_COUNT(GrTexture)
-    GR_DECLARE_RESOURCE_CACHE_TYPE()
-
     // from GrResource
     /**
      * Informational texture flags
@@ -82,10 +80,10 @@ public:
      *            render target
      */
     virtual GrRenderTarget* asRenderTarget() SK_OVERRIDE {
-        return fRenderTarget;
+        return fRenderTarget.get();
     }
     virtual const GrRenderTarget* asRenderTarget() const SK_OVERRIDE {
-        return fRenderTarget;
+        return fRenderTarget.get();
     }
 
     // GrTexture
@@ -103,17 +101,10 @@ public:
     }
 
     /**
-     * Removes the reference on the associated GrRenderTarget held by this
-     * texture. Afterwards asRenderTarget() will return NULL. The
-     * GrRenderTarget survives the release if another ref is held on it.
-     */
-    void releaseRenderTarget();
-
-    /**
      *  Return the native ID or handle to the texture, depending on the
-     *  platform. e.g. on opengl, return the texture ID.
+     *  platform. e.g. on OpenGL, return the texture ID.
      */
-    virtual intptr_t getTextureHandle() const = 0;
+    virtual GrBackendObject getTextureHandle() const = 0;
 
     /**
      *  Call this when the state of the native API texture object is
@@ -130,30 +121,28 @@ public:
 #else
     void validate() const {}
 #endif
-
     static GrResourceKey ComputeKey(const GrGpu* gpu,
-                                    const GrTextureParams* sampler,
+                                    const GrTextureParams* params,
                                     const GrTextureDesc& desc,
-                                    const GrCacheData& cacheData,
-                                    bool scratch);
-
+                                    const GrCacheID& cacheID);
+    static GrResourceKey ComputeScratchKey(const GrTextureDesc& desc);
     static bool NeedsResizing(const GrResourceKey& key);
-    static bool IsScratchTexture(const GrResourceKey& key);
     static bool NeedsFiltering(const GrResourceKey& key);
 
 protected:
-    GrRenderTarget* fRenderTarget; // texture refs its rt representation
-                                   // base class cons sets to NULL
-                                   // subclass cons can create and set
+    // A texture refs its rt representation but not vice-versa. It is up to
+    // the subclass constructor to initialize this pointer.
+    SkAutoTUnref<GrRenderTarget> fRenderTarget;
 
-    GrTexture(GrGpu* gpu, const GrTextureDesc& desc)
-    : INHERITED(gpu, desc)
+    GrTexture(GrGpu* gpu, bool isWrapped, const GrTextureDesc& desc)
+    : INHERITED(gpu, isWrapped, desc)
     , fRenderTarget(NULL) {
 
         // only make sense if alloc size is pow2
-        fShiftFixedX = 31 - Gr_clz(fDesc.fWidth);
-        fShiftFixedY = 31 - Gr_clz(fDesc.fHeight);
+        fShiftFixedX = 31 - SkCLZ(fDesc.fWidth);
+        fShiftFixedY = 31 - SkCLZ(fDesc.fHeight);
     }
+    virtual ~GrTexture();
 
     // GrResource overrides
     virtual void onRelease() SK_OVERRIDE;
@@ -172,5 +161,42 @@ private:
     typedef GrSurface INHERITED;
 };
 
-#endif
+/**
+ * Represents a texture that is intended to be accessed in device coords with an offset.
+ */
+class GrDeviceCoordTexture {
+public:
+    GrDeviceCoordTexture() { fOffset.set(0, 0); }
 
+    GrDeviceCoordTexture(const GrDeviceCoordTexture& other) {
+        *this = other;
+    }
+
+    GrDeviceCoordTexture(GrTexture* texture, const SkIPoint& offset)
+        : fTexture(SkSafeRef(texture))
+        , fOffset(offset) {
+    }
+
+    GrDeviceCoordTexture& operator=(const GrDeviceCoordTexture& other) {
+        fTexture.reset(SkSafeRef(other.fTexture.get()));
+        fOffset = other.fOffset;
+        return *this;
+    }
+
+    const SkIPoint& offset() const { return fOffset; }
+
+    void setOffset(const SkIPoint& offset) { fOffset = offset; }
+    void setOffset(int ox, int oy) { fOffset.set(ox, oy); }
+
+    GrTexture* texture() const { return fTexture.get(); }
+
+    GrTexture* setTexture(GrTexture* texture) {
+        fTexture.reset(SkSafeRef(texture));
+        return texture;
+    }
+private:
+    SkAutoTUnref<GrTexture> fTexture;
+    SkIPoint                fOffset;
+};
+
+#endif

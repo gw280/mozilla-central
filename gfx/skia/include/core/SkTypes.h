@@ -112,16 +112,39 @@ inline void operator delete(void* p) {
     #define SkAssertResult(cond)        cond
 #endif
 
-namespace {
+#ifdef SK_DEVELOPER
+    #define SkDEVCODE(code)             code
+    // the 'toString' helper functions convert Sk* objects to human-readable
+    // form in developer mode
+    #define SK_DEVELOPER_TO_STRING()    virtual void toString(SkString* str) const SK_OVERRIDE;
+#else
+    #define SkDEVCODE(code)
+    #define SK_DEVELOPER_TO_STRING()
+#endif
 
 template <bool>
 struct SkCompileAssert {
 };
 
-}  // namespace
-
 #define SK_COMPILE_ASSERT(expr, msg) \
     typedef SkCompileAssert<(bool(expr))> msg[bool(expr) ? 1 : -1]
+
+/*
+ *  Usage:  SK_MACRO_CONCAT(a, b)   to construct the symbol ab
+ *
+ *  SK_MACRO_CONCAT_IMPL_PRIV just exists to make this work. Do not use directly
+ *
+ */
+#define SK_MACRO_CONCAT(X, Y)           SK_MACRO_CONCAT_IMPL_PRIV(X, Y)
+#define SK_MACRO_CONCAT_IMPL_PRIV(X, Y)  X ## Y
+
+/*
+ *  Usage: SK_MACRO_APPEND_LINE(foo)    to make foo123, where 123 is the current
+ *                                      line number. Easy way to construct
+ *                                      unique names for local functions or
+ *                                      variables.
+ */
+#define SK_MACRO_APPEND_LINE(name)  SK_MACRO_CONCAT(name, __LINE__)
 
 ///////////////////////////////////////////////////////////////////////
 
@@ -185,10 +208,10 @@ typedef uint8_t SkBool8;
 #define SK_MaxU16   0xFFFF
 #define SK_MinU16   0
 #define SK_MaxS32   0x7FFFFFFF
-#define SK_MinS32   0x80000001
+#define SK_MinS32   -SK_MaxS32
 #define SK_MaxU32   0xFFFFFFFF
 #define SK_MinU32   0
-#define SK_NaN32    0x80000000
+#define SK_NaN32    (1 << 31)
 
 /** Returns true if the value can be represented with signed 16bits
  */
@@ -253,6 +276,8 @@ static inline int Sk32ToBool(uint32_t n) {
     return (n | (0-n)) >> 31;
 }
 
+/** Generic swap function. Classes with efficient swaps should specialize this function to take
+    their fast path. This function is used by SkTSort. */
 template <typename T> inline void SkTSwap(T& a, T& b) {
     T c(a);
     a = b;
@@ -270,6 +295,13 @@ static inline int32_t SkAbs32(int32_t value) {
 #endif
 }
 
+template <typename T> inline T SkTAbs(T value) {
+    if (value < 0) {
+        value = -value;
+    }
+    return value;
+}
+
 static inline int32_t SkMax32(int32_t a, int32_t b) {
     if (a < b)
         a = b;
@@ -280,6 +312,14 @@ static inline int32_t SkMin32(int32_t a, int32_t b) {
     if (a > b)
         a = b;
     return a;
+}
+
+template <typename T> const T& SkTMin(const T& a, const T& b) {
+    return (a < b) ? a : b;
+}
+
+template <typename T> const T& SkTMax(const T& a, const T& b) {
+    return (b < a) ? a : b;
 }
 
 static inline int32_t SkSign32(int32_t a) {
@@ -444,14 +484,20 @@ public:
     /**
      *  Reallocates the block to a new size. The ptr may or may not change.
      */
-    void* reset(size_t size, OnShrink shrink = kAlloc_OnShrink) {
+    void* reset(size_t size, OnShrink shrink = kAlloc_OnShrink,  bool* didChangeAlloc = NULL) {
         if (size == fSize || (kReuse_OnShrink == shrink && size < fSize)) {
+            if (NULL != didChangeAlloc) {
+                *didChangeAlloc = false;
+            }
             return fPtr;
         }
 
         sk_free(fPtr);
         fPtr = size ? sk_malloc_throw(size) : NULL;
         fSize = size;
+        if (NULL != didChangeAlloc) {
+            *didChangeAlloc = true;
+        }
 
         return fPtr;
     }
@@ -500,7 +546,7 @@ public:
      */
     SkAutoSMalloc() {
         fPtr = fStorage;
-        fSize = 0;
+        fSize = kSize;
     }
 
     /**
@@ -510,7 +556,7 @@ public:
      */
     explicit SkAutoSMalloc(size_t size) {
         fPtr = fStorage;
-        fSize = 0;
+        fSize = kSize;
         this->reset(size);
     }
 
@@ -539,21 +585,29 @@ public:
      *  heap.
      */
     void* reset(size_t size,
-                SkAutoMalloc::OnShrink shrink = SkAutoMalloc::kAlloc_OnShrink) {
-        if (size == fSize || (SkAutoMalloc::kReuse_OnShrink == shrink &&
-                              size < fSize)) {
-            return fPtr;
+                SkAutoMalloc::OnShrink shrink = SkAutoMalloc::kAlloc_OnShrink,
+                bool* didChangeAlloc = NULL) {
+        size = (size < kSize) ? kSize : size;
+        bool alloc = size != fSize && (SkAutoMalloc::kAlloc_OnShrink == shrink || size > fSize);
+        if (NULL != didChangeAlloc) {
+            *didChangeAlloc = alloc;
         }
+        if (alloc) {
+            if (fPtr != (void*)fStorage) {
+                sk_free(fPtr);
+            }
 
-        if (fPtr != (void*)fStorage) {
-            sk_free(fPtr);
-        }
+            if (size == kSize) {
+                SkASSERT(fPtr != fStorage); // otherwise we lied when setting didChangeAlloc.
+                fPtr = fStorage;
+            } else {
+                fPtr = sk_malloc_flags(size, SK_MALLOC_THROW | SK_MALLOC_TEMP);
+            }
 
-        if (size <= kSize) {
-            fPtr = fStorage;
-        } else {
-            fPtr = sk_malloc_flags(size, SK_MALLOC_THROW | SK_MALLOC_TEMP);
+            fSize = size;
         }
+        SkASSERT(fSize >= size && fSize >= kSize);
+        SkASSERT((fPtr == fStorage) || fSize > kSize);
         return fPtr;
     }
 

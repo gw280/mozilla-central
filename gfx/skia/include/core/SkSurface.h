@@ -24,7 +24,7 @@ class GrRenderTarget;
  *  To draw into a canvas, first create the appropriate type of Surface, and
  *  then request the canvas from the surface.
  */
-class SkSurface : public SkRefCnt {
+class SK_API SkSurface : public SkRefCnt {
 public:
     SK_DECLARE_INST_COUNT(SkSurface)
 
@@ -35,8 +35,7 @@ public:
      *  If the requested surface cannot be created, or the request is not a
      *  supported configuration, NULL will be returned.
      */
-    static SkSurface* NewRasterDirect(const SkImage::Info&, SkColorSpace*,
-                                      void* pixels, size_t rowBytes);
+    static SkSurface* NewRasterDirect(const SkImage::Info&, void* pixels, size_t rowBytes);
 
     /**
      *  Return a new surface, with the memory for the pixels automatically
@@ -45,7 +44,7 @@ public:
      *  If the requested surface cannot be created, or the request is not a
      *  supported configuration, NULL will be returned.
      */
-    static SkSurface* NewRaster(const SkImage::Info&, SkColorSpace*);
+    static SkSurface* NewRaster(const SkImage::Info&);
 
     /**
      *  Return a new surface whose contents will be recorded into a picture.
@@ -63,8 +62,7 @@ public:
      *  Return a new surface whose contents will be drawn to an offscreen
      *  render target, allocated by the surface.
      */
-    static SkSurface* NewRenderTarget(GrContext*, const SkImage::Info&,
-                                      SkColorSpace*, int sampleCount = 0);
+    static SkSurface* NewRenderTarget(GrContext*, const SkImage::Info&, int sampleCount = 0);
 
     int width() const { return fWidth; }
     int height() const { return fHeight; }
@@ -81,10 +79,26 @@ public:
     uint32_t generationID();
 
     /**
-     *  Call this if the contents have changed. This will (lazily) force a new
+     *  Modes that can be passed to notifyContentWillChange
+     */
+    enum ContentChangeMode {
+        /**
+         *  Use this mode if it is known that the upcoming content changes will
+         *  clear or overwrite prior contents, thus making them discardable.
+         */
+        kDiscard_ContentChangeMode,
+        /**
+         *  Use this mode if prior surface contents need to be preserved or
+         *  if in doubt.
+         */
+        kRetain_ContentChangeMode,
+    };
+
+    /**
+     *  Call this if the contents are about to change. This will (lazily) force a new
      *  value to be returned from generationID() when it is called next.
      */
-    void notifyContentChanged();
+    void notifyContentWillChange(ContentChangeMode mode);
 
     /**
      *  Return a canvas that will draw into this surface. This will always
@@ -107,14 +121,14 @@ public:
      *  ... // draw using canvasB
      *  canvasA->drawSurface(surfaceB); // <--- this will always be optimal!
      */
-    SkSurface* newSurface(const SkImage::Info&, SkColorSpace*);
+    SkSurface* newSurface(const SkImage::Info&);
 
     /**
      *  Returns an image of the current state of the surface pixels up to this
      *  point. Subsequent changes to the surface (by drawing into its canvas)
      *  will not be reflected in this image.
      */
-    SkImage* newImageShapshot();
+    SkImage* newImageSnapshot();
 
     /**
      *  Thought the caller could get a snapshot image explicitly, and draw that,

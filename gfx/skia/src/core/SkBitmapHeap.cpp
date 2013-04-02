@@ -38,26 +38,24 @@ void SkBitmapHeapEntry::addReferences(int count) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-int SkBitmapHeap::LookupEntry::Compare(const SkBitmapHeap::LookupEntry *a,
-                                       const SkBitmapHeap::LookupEntry *b) {
-    if (a->fGenerationId < b->fGenerationId) {
-        return -1;
-    } else if (a->fGenerationId > b->fGenerationId) {
-        return 1;
-    } else if (a->fPixelOffset < b->fPixelOffset) {
-        return -1;
-    } else if (a->fPixelOffset > b->fPixelOffset) {
-        return 1;
-    } else if (a->fWidth < b->fWidth) {
-        return -1;
-    } else if (a->fWidth > b->fWidth) {
-        return 1;
-    } else if (a->fHeight < b->fHeight) {
-        return -1;
-    } else if (a->fHeight > b->fHeight) {
-        return 1;
+bool SkBitmapHeap::LookupEntry::Less(const SkBitmapHeap::LookupEntry& a,
+                                     const SkBitmapHeap::LookupEntry& b) {
+    if (a.fGenerationId < b.fGenerationId) {
+        return true;
+    } else if (a.fGenerationId > b.fGenerationId) {
+        return false;
+    } else if (a.fPixelOffset < b.fPixelOffset) {
+        return true;
+    } else if (a.fPixelOffset > b.fPixelOffset) {
+        return false;
+    } else if (a.fWidth < b.fWidth) {
+        return true;
+    } else if (a.fWidth > b.fWidth) {
+        return false;
+    } else if (a.fHeight < b.fHeight) {
+        return true;
     }
-    return 0;
+    return false;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -231,9 +229,10 @@ size_t SkBitmapHeap::freeMemoryIfPossible(size_t bytesToFree) {
 }
 
 int SkBitmapHeap::findInLookupTable(const LookupEntry& indexEntry, SkBitmapHeapEntry** entry) {
-    int index = SkTSearch<const LookupEntry>((const LookupEntry**)fLookupTable.begin(),
+    int index = SkTSearch<const LookupEntry, LookupEntry::Less>(
+                                             (const LookupEntry**)fLookupTable.begin(),
                                              fLookupTable.count(),
-                                             &indexEntry, sizeof(void*), LookupEntry::Compare);
+                                             &indexEntry, sizeof(void*));
 
     if (index < 0) {
         // insert ourselves into the bitmapIndex
@@ -367,13 +366,17 @@ int32_t SkBitmapHeap::insert(const SkBitmap& originalBitmap) {
     // TODO if there is a shared pixel ref don't count it
     // If the SkBitmap does not share an SkPixelRef with an SkBitmap already
     // in the SharedHeap, also include the size of its pixels.
-    entry->fBytesAllocated += originalBitmap.getSize();
+    entry->fBytesAllocated = originalBitmap.getSize();
 
     // add the bytes from this entry to the total count
     fBytesAllocated += entry->fBytesAllocated;
 
     if (fOwnerCount != IGNORE_OWNERS) {
-        entry->addReferences(fOwnerCount);
+        if (fDeferAddingOwners) {
+            *fDeferredEntries.append() = entry->fSlot;
+        } else {
+            entry->addReferences(fOwnerCount);
+        }
     }
     if (fPreferredCount != UNLIMITED_SIZE) {
         this->appendToLRU(fLookupTable[searchIndex]);

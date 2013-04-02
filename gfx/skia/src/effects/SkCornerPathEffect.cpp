@@ -12,13 +12,8 @@
 #include "SkPoint.h"
 #include "SkFlattenableBuffers.h"
 
-SkCornerPathEffect::SkCornerPathEffect(SkScalar radius) : fRadius(radius)
-{
-}
-
-SkCornerPathEffect::~SkCornerPathEffect()
-{
-}
+SkCornerPathEffect::SkCornerPathEffect(SkScalar radius) : fRadius(radius) {}
+SkCornerPathEffect::~SkCornerPathEffect() {}
 
 static bool ComputeStep(const SkPoint& a, const SkPoint& b, SkScalar radius,
                         SkPoint* step) {
@@ -36,8 +31,8 @@ static bool ComputeStep(const SkPoint& a, const SkPoint& b, SkScalar radius,
 }
 
 bool SkCornerPathEffect::filterPath(SkPath* dst, const SkPath& src,
-                                    SkStrokeRec*) {
-    if (fRadius == 0) {
+                                    SkStrokeRec*, const SkRect*) const {
+    if (0 == fRadius) {
         return false;
     }
 
@@ -116,6 +111,9 @@ bool SkCornerPathEffect::filterPath(SkPath* dst, const SkPath& src,
                     }
                 dst->close();
                 break;
+            case SkPath::kConic_Verb:
+                SkASSERT(0);
+                break;
             case SkPath::kDone_Verb:
                 goto DONE;
         }
@@ -137,6 +135,3 @@ void SkCornerPathEffect::flatten(SkFlattenableWriteBuffer& buffer) const {
 SkCornerPathEffect::SkCornerPathEffect(SkFlattenableReadBuffer& buffer) {
     fRadius = buffer.readScalar();
 }
-
-SK_DEFINE_FLATTENABLE_REGISTRAR(SkCornerPathEffect)
-

@@ -6,94 +6,149 @@
  * found in the LICENSE file.
  */
 
-
+#include "SkBitmap.h"
+#include "SkBitmapFactory.h"
+#include "SkImage.h"
 #include "SkImageDecoder.h"
+#include "SkImageEncoder.h"
 #include "SkMovie.h"
-#include "SkStream.h"
 
-extern SkImageDecoder* SkImageDecoder_GIF_Factory(SkStream*);
-extern SkImageDecoder* SkImageDecoder_BMP_Factory(SkStream*);
-extern SkImageDecoder* SkImageDecoder_ICO_Factory(SkStream*);
-extern SkImageDecoder* SkImageDecoder_PNG_Factory(SkStream*);
-extern SkImageDecoder* SkImageDecoder_WBMP_Factory(SkStream*);
-extern SkImageDecoder* SkImageDecoder_JPEG_Factory(SkStream*);
+class SkColorTable;
+class SkStream;
 
-typedef SkImageDecoder* (*SkImageDecoderFactoryProc)(SkStream*);
+// Empty implementations for SkImageDecoder.
 
-struct CodecFormat {
-    SkImageDecoderFactoryProc   fProc;
-    SkImageDecoder::Format      fFormat;
-};
-
-static const CodecFormat gPairs[] = {
-#if 0
-    { SkImageDecoder_GIF_Factory,   SkImageDecoder::kGIF_Format },
-    { SkImageDecoder_PNG_Factory,   SkImageDecoder::kPNG_Format },
-    { SkImageDecoder_ICO_Factory,   SkImageDecoder::kICO_Format },
-    { SkImageDecoder_WBMP_Factory,  SkImageDecoder::kWBMP_Format },
-    { SkImageDecoder_BMP_Factory,   SkImageDecoder::kBMP_Format },
-    { SkImageDecoder_JPEG_Factory,  SkImageDecoder::kJPEG_Format }
-#endif
-};
-
-SkImageDecoder* SkImageDecoder::Factory(SkStream* stream) {
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gPairs); i++) {
-        SkImageDecoder* codec = gPairs[i].fProc(stream);
-        stream->rewind();
-        if (NULL != codec) {
-            return codec;
-        }
-    }
+SkImageDecoder* SkImageDecoder::Factory(SkStream*) {
     return NULL;
 }
 
-bool SkImageDecoder::SupportsFormat(Format format) {
-    for (size_t i = 0; i < SK_ARRAY_COUNT(gPairs); i++) {
-        if (gPairs[i].fFormat == format) {
-            return true;
-        }
-    }
+bool SkImageDecoder::DecodeFile(const char[], SkBitmap*, SkBitmap::Config,
+                                SkImageDecoder::Mode, SkImageDecoder::Format*) {
     return false;
 }
 
+bool SkImageDecoder::decode(SkStream*, SkBitmap*, SkBitmap::Config, Mode, bool) {
+    return false;
+}
+
+bool SkImageDecoder::DecodeStream(SkStream*, SkBitmap*, SkBitmap::Config,
+                                  SkImageDecoder::Mode,
+                                  SkImageDecoder::Format*) {
+    return false;
+}
+
+bool SkImageDecoder::DecodeMemory(const void*, size_t, SkBitmap*,
+                                  SkBitmap::Config, SkImageDecoder::Mode,
+                                  SkImageDecoder::Format*) {
+    return false;
+}
+
+bool SkImageDecoder::buildTileIndex(SkStream*, int *width, int *height) {
+    return false;
+}
+
+bool SkImageDecoder::decodeSubset(SkBitmap*, const SkIRect&, SkBitmap::Config) {
+    return false;
+}
+
+SkImageDecoder::Format SkImageDecoder::getFormat() const {
+    return kUnknown_Format;
+}
+
+SkImageDecoder::Format SkImageDecoder::GetStreamFormat(SkStream*) {
+    return kUnknown_Format;
+}
+
+const char* SkImageDecoder::GetFormatName(Format) {
+    return NULL;
+}
+
+SkImageDecoder::Peeker* SkImageDecoder::setPeeker(Peeker*) {
+    return NULL;
+}
+
+SkImageDecoder::Chooser* SkImageDecoder::setChooser(Chooser*) {
+    return NULL;
+}
+
+SkBitmap::Allocator* SkImageDecoder::setAllocator(SkBitmap::Allocator*) {
+    return NULL;
+}
+
+void SkImageDecoder::setSampleSize(int) {}
+
+bool SkImageDecoder::DecodeMemoryToTarget(const void*, size_t, SkImage::Info*,
+                                          const SkBitmapFactory::Target*) {
+    return false;
+}
+
+SkBitmap::Config SkImageDecoder::GetDeviceConfig() {
+    return SkBitmap::kNo_Config;
+}
+
+void SkImageDecoder::SetDeviceConfig(SkBitmap::Config) {}
+
+bool SkImageDecoder::cropBitmap(SkBitmap*, SkBitmap*, int, int, int, int, int,
+                    int, int) {
+    return false;
+}
+
+bool SkImageDecoder::chooseFromOneChoice(SkBitmap::Config, int, int) const {
+    return false;
+}
+
+bool SkImageDecoder::allocPixelRef(SkBitmap*, SkColorTable*) const {
+    return false;
+}
+
+SkBitmap::Config SkImageDecoder::getPrefConfig(SrcDepth, bool) const {
+    return SkBitmap::kNo_Config;
+}
+
+
 /////////////////////////////////////////////////////////////////////////
 
-typedef SkMovie* (*SkMovieFactoryProc)(SkStream*);
-
-extern SkMovie* SkMovie_GIF_Factory(SkStream*);
-
-static const SkMovieFactoryProc gMovieProcs[] = {
-#if 0
-    SkMovie_GIF_Factory
-#endif
-};
+// Empty implementation for SkMovie.
 
 SkMovie* SkMovie::DecodeStream(SkStream* stream) {
-    for (unsigned i = 0; i < SK_ARRAY_COUNT(gMovieProcs); i++) {
-        SkMovie* movie = gMovieProcs[i](stream);
-        if (NULL != movie) {
-            return movie;
-        }
-        stream->rewind();
-    }
     return NULL;
 }
 
 /////////////////////////////////////////////////////////////////////////
 
-extern SkImageEncoder* SkImageEncoder_JPEG_Factory();
-extern SkImageEncoder* SkImageEncoder_PNG_Factory();
+// Empty implementations for SkImageEncoder.
 
 SkImageEncoder* SkImageEncoder::Create(Type t) {
-    switch (t) {
-#if 0
-        case kJPEG_Type:
-            return SkImageEncoder_JPEG_Factory();
-        case kPNG_Type:
-            return SkImageEncoder_PNG_Factory();
-#endif
-        default:
-            return NULL;
-    }
+    return NULL;
 }
 
+bool SkImageEncoder::EncodeFile(const char file[], const SkBitmap&, Type, int quality) {
+    return false;
+}
+
+bool SkImageEncoder::EncodeStream(SkWStream*, const SkBitmap&, SkImageEncoder::Type, int) {
+    return false;
+}
+
+SkData* SkImageEncoder::EncodeData(const SkBitmap&, Type, int quality) {
+    return NULL;
+}
+
+bool SkImageEncoder::encodeStream(SkWStream*, const SkBitmap&, int) {
+    return false;
+}
+
+SkData* SkImageEncoder::encodeData(const SkBitmap&, int) {
+    return NULL;
+}
+
+bool SkImageEncoder::encodeFile(const char file[], const SkBitmap& bm, int quality) {
+    return false;
+}
+/////////////////////////////////////////////////////////////////////////
+
+// Empty implementation for SkImages.
+
+#include "SkImages.h"
+
+void SkImages::InitializeFlattenables() {}

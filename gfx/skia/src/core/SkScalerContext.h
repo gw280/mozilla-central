@@ -12,10 +12,10 @@
 #include "SkMaskGamma.h"
 #include "SkMatrix.h"
 #include "SkPaint.h"
+#include "SkTypeface.h"
 
 #ifdef SK_BUILD_FOR_ANDROID
-    //For SkFontID
-    #include "SkTypeface.h"
+    #include "SkPaintOptionsAndroid.h"
 #endif
 
 struct SkGlyph;
@@ -74,7 +74,7 @@ struct SkScalerContextRec {
      *  paint and device gamma to be effectively 1.0.
      */
     void ignorePreBlend() {
-        setLuminanceColor(0x00000000);
+        setLuminanceColor(SK_ColorTRANSPARENT);
         setPaintGamma(SK_Scalar1);
         setDeviceGamma(SK_Scalar1);
         setContrast(0);
@@ -149,8 +149,10 @@ public:
     };
 
 
-    SkScalerContext(const SkDescriptor* desc);
+    SkScalerContext(SkTypeface*, const SkDescriptor*);
     virtual ~SkScalerContext();
+
+    SkTypeface* getTypeface() const { return fTypeface.get(); }
 
     SkMask::Format getMaskFormat() const {
         return (SkMask::Format)fRec.fMaskFormat;
@@ -182,30 +184,20 @@ public:
     void        getMetrics(SkGlyph*);
     void        getImage(const SkGlyph&);
     void        getPath(const SkGlyph&, SkPath*);
-    void        getFontMetrics(SkPaint::FontMetrics* mX,
-                               SkPaint::FontMetrics* mY);
+    void        getFontMetrics(SkPaint::FontMetrics*);
 
 #ifdef SK_BUILD_FOR_ANDROID
     unsigned getBaseGlyphCount(SkUnichar charCode);
 
     // This function must be public for SkTypeface_android.h, but should not be
     // called by other callers
-    SkFontID findTypefaceIdForChar(SkUnichar uni) {
-        SkScalerContext* ctx = this;
-        while (NULL != ctx) {
-            if (ctx->generateCharToGlyph(uni)) {
-                return ctx->fRec.fFontID;
-            }
-            ctx = ctx->getNextContext();
-        }
-        return 0;
-    }
+    SkFontID findTypefaceIdForChar(SkUnichar uni);
 #endif
 
-    static inline void MakeRec(const SkPaint&, const SkMatrix*, Rec* rec);
+    static inline void MakeRec(const SkPaint&, const SkDeviceProperties* deviceProperties,
+                               const SkMatrix*, Rec* rec);
     static inline void PostMakeRec(const SkPaint&, Rec*);
 
-    static SkScalerContext* Create(const SkDescriptor*);
     static SkMaskGamma::PreBlend GetMaskPreBlend(const Rec& rec);
 
 protected:
@@ -216,7 +208,7 @@ protected:
     virtual uint16_t generateCharToGlyph(SkUnichar) = 0;
     virtual void generateAdvance(SkGlyph*) = 0;
     virtual void generateMetrics(SkGlyph*) = 0;
-    virtual void generateImage(const SkGlyph&, SkMaskGamma::PreBlend* maskPreBlend) = 0;
+    virtual void generateImage(const SkGlyph&) = 0;
     virtual void generatePath(const SkGlyph&, SkPath*) = 0;
     virtual void generateFontMetrics(SkPaint::FontMetrics* mX,
                                      SkPaint::FontMetrics* mY) = 0;
@@ -226,6 +218,14 @@ protected:
     void forceGenerateImageFromPath() { fGenerateImageFromPath = true; }
 
 private:
+    // never null
+    SkAutoTUnref<SkTypeface> fTypeface;
+
+#ifdef SK_BUILD_FOR_ANDROID
+    SkPaintOptionsAndroid fPaintOptionsAndroid;
+#endif
+
+    // optional object, which may be null
     SkPathEffect*   fPathEffect;
     SkMaskFilter*   fMaskFilter;
     SkRasterizer*   fRasterizer;
@@ -237,6 +237,10 @@ private:
     void internalGetPath(const SkGlyph& glyph, SkPath* fillPath,
                          SkPath* devPath, SkMatrix* fillToDevMatrix);
 
+    // Return the context associated with the next logical typeface, or NULL if
+    // there are no more entries in the fallback chain.
+    SkScalerContext* allocNextContext() const;
+
     // return the next context, treating fNextContext as a cache of the answer
     SkScalerContext* getNextContext();
 
@@ -244,17 +248,31 @@ private:
     // is found, just returns the original context (this)
     SkScalerContext* getGlyphContext(const SkGlyph& glyph);
 
+    // returns the right context from our link-list for this char. If no match
+    // is found it returns NULL. If a match is found then the glyphID param is
+    // set to the glyphID that maps to the provided char.
+    SkScalerContext* getContextFromChar(SkUnichar uni, uint16_t* glyphID);
+
     // link-list of context, to handle missing chars. null-terminated.
     SkScalerContext* fNextContext;
 
-    // converts linear masks to gamma correcting masks.
-    SkMaskGamma::PreBlend fMaskPreBlend;
+    // SkMaskGamma::PreBlend converts linear masks to gamma correcting masks.
+protected:
+    // Visible to subclasses so that generateImage can apply the pre-blend directly.
+    const SkMaskGamma::PreBlend fPreBlend;
+private:
+    // When there is a filter, previous steps must create a linear mask
+    // and the pre-blend applied as a final step.
+    const SkMaskGamma::PreBlend fPreBlendForFilter;
 };
 
 #define kRec_SkDescriptorTag            SkSetFourByteTag('s', 'r', 'e', 'c')
 #define kPathEffect_SkDescriptorTag     SkSetFourByteTag('p', 't', 'h', 'e')
 #define kMaskFilter_SkDescriptorTag     SkSetFourByteTag('m', 's', 'k', 'f')
 #define kRasterizer_SkDescriptorTag     SkSetFourByteTag('r', 'a', 's', 't')
+#ifdef SK_BUILD_FOR_ANDROID
+#define kAndroidOpts_SkDescriptorTag    SkSetFourByteTag('a', 'n', 'd', 'r')
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -287,4 +305,3 @@ void SkScalerContextRec::setHinting(SkPaint::Hinting hinting) {
 
 
 #endif
-

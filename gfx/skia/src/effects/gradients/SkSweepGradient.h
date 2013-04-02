@@ -13,8 +13,7 @@
 
 class SkSweepGradient : public SkGradientShaderBase {
 public:
-    SkSweepGradient(SkScalar cx, SkScalar cy, const SkColor colors[],
-                   const SkScalar pos[], int count, SkUnitMapper* mapper);
+    SkSweepGradient(SkScalar cx, SkScalar cy, const Descriptor&);
     virtual void shadeSpan(int x, int y, SkPMColor dstC[], int count) SK_OVERRIDE;
     virtual void shadeSpan16(int x, int y, uint16_t dstC[], int count) SK_OVERRIDE;
 
@@ -24,9 +23,9 @@ public:
 
     virtual GradientType asAGradient(GradientInfo* info) const SK_OVERRIDE;
 
-    virtual GrCustomStage* asNewCustomStage(GrContext* context,
-        GrSamplerState* sampler) const SK_OVERRIDE;
+    virtual GrEffectRef* asNewEffect(GrContext* context, const SkPaint&) const SK_OVERRIDE;
 
+    SK_DEVELOPER_TO_STRING()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkSweepGradient)
 
 protected:
@@ -39,4 +38,3 @@ private:
 };
 
 #endif
-

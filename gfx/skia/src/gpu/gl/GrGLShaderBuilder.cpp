@@ -8,6 +8,7 @@
 #include "gl/GrGLShaderBuilder.h"
 #include "gl/GrGLProgram.h"
 #include "gl/GrGLUniformHandle.h"
+#include "GrDrawEffect.h"
 #include "GrTexture.h"
 
 // number of each input/output type in a single allocation block
@@ -24,25 +25,36 @@ typedef GrGLUniformManager::UniformHandle UniformHandle;
 
 namespace {
 
-inline const char* sample_function_name(GrSLType type) {
+inline const char* sample_function_name(GrSLType type, GrGLSLGeneration glslGen) {
     if (kVec2f_GrSLType == type) {
-        return "texture2D";
+        return glslGen >= k130_GrGLSLGeneration ? "texture" : "texture2D";
     } else {
         GrAssert(kVec3f_GrSLType == type);
-        return "texture2DProj";
+        return glslGen >= k130_GrGLSLGeneration ? "textureProj" : "texture2DProj";
     }
 }
 
 /**
- * Do we need to either map r,g,b->a or a->r.
+ * Do we need to either map r,g,b->a or a->r. configComponentMask indicates which channels are
+ * present in the texture's config. swizzleComponentMask indicates the channels present in the
+ * shader swizzle.
  */
 inline bool swizzle_requires_alpha_remapping(const GrGLCaps& caps,
-                                             const GrTextureAccess& access) {
-    if (GrPixelConfigIsAlphaOnly(access.getTexture()->config())) {
-        if (caps.textureRedSupport() && (GrTextureAccess::kA_SwizzleFlag & access.swizzleMask())) {
+                                             uint32_t configComponentMask,
+                                             uint32_t swizzleComponentMask) {
+    if (caps.textureSwizzleSupport()) {
+        // Any remapping is handled using texture swizzling not shader modifications.
+        return false;
+    }
+    // check if the texture is alpha-only
+    if (kA_GrColorComponentFlag == configComponentMask) {
+        if (caps.textureRedSupport() && (kA_GrColorComponentFlag & swizzleComponentMask)) {
+            // we must map the swizzle 'a's to 'r'.
             return true;
         }
-        if (GrTextureAccess::kRGB_SwizzleMask & access.swizzleMask()) {
+        if (kRGB_GrColorComponentFlags & swizzleComponentMask) {
+            // The 'r', 'g', and/or 'b's must be mapped to 'a' according to our semantics that
+            // alpha-only textures smear alpha across all four channels when read.
             return true;
         }
     }
@@ -50,14 +62,15 @@ inline bool swizzle_requires_alpha_remapping(const GrGLCaps& caps,
 }
 
 void append_swizzle(SkString* outAppend,
-                    const GrTextureAccess& access,
+                    const GrGLShaderBuilder::TextureSampler& texSampler,
                     const GrGLCaps& caps) {
-    const char* swizzle = access.getSwizzle();
+    const char* swizzle = texSampler.swizzle();
     char mangledSwizzle[5];
 
     // The swizzling occurs using texture params instead of shader-mangling if ARB_texture_swizzle
     // is available.
-    if (!caps.textureSwizzleSupport() && GrPixelConfigIsAlphaOnly(access.getTexture()->config())) {
+    if (!caps.textureSwizzleSupport() &&
+        (kA_GrColorComponentFlag == texSampler.configComponentMask())) {
         char alphaChar = caps.textureRedSupport() ? 'r' : 'a';
         int i;
         for (i = 0; '\0' != swizzle[i]; ++i) {
@@ -66,19 +79,21 @@ void append_swizzle(SkString* outAppend,
         mangledSwizzle[i] ='\0';
         swizzle = mangledSwizzle;
     }
-    outAppend->appendf(".%s", swizzle);
+    // For shader prettiness we omit the swizzle rather than appending ".rgba".
+    if (memcmp(swizzle, "rgba", 4)) {
+        outAppend->appendf(".%s", swizzle);
+    }
 }
 
 }
+
+static const char kDstCopyColorName[] = "_dstColor";
 
 ///////////////////////////////////////////////////////////////////////////////
 
-// Architectural assumption: always 2-d input coords.
-// Likely to become non-constant and non-static, perhaps even
-// varying by stage, if we use 1D textures for gradients!
-//const int GrGLShaderBuilder::fCoordDims = 2;
-
-GrGLShaderBuilder::GrGLShaderBuilder(const GrGLContextInfo& ctx, GrGLUniformManager& uniformManager)
+GrGLShaderBuilder::GrGLShaderBuilder(const GrGLContextInfo& ctxInfo,
+                                     GrGLUniformManager& uniformManager,
+                                     const GrGLProgramDesc& desc)
     : fUniforms(kVarsPerBlock)
     , fVSAttrs(kVarsPerBlock)
     , fVSOutputs(kVarsPerBlock)
@@ -86,87 +101,268 @@ GrGLShaderBuilder::GrGLShaderBuilder(const GrGLContextInfo& ctx, GrGLUniformMana
     , fGSOutputs(kVarsPerBlock)
     , fFSInputs(kVarsPerBlock)
     , fFSOutputs(kMaxFSOutputs)
-    , fUsesGS(false)
-    , fContext(ctx)
+    , fCtxInfo(ctxInfo)
     , fUniformManager(uniformManager)
-    , fCurrentStage(kNonStageIdx)
-    , fTexCoordVaryingType(kVoid_GrSLType) {
+    , fFSFeaturesAddedMask(0)
+#if GR_GL_EXPERIMENTAL_GS
+    , fUsesGS(SkToBool(desc.getHeader().fExperimentalGS))
+#else
+    , fUsesGS(false)
+#endif
+    , fSetupFragPosition(false)
+    , fRTHeightUniform(GrGLUniformManager::kInvalidUniformHandle)
+    , fDstCopyTopLeftUniform (GrGLUniformManager::kInvalidUniformHandle)
+    , fDstCopyScaleUniform (GrGLUniformManager::kInvalidUniformHandle)
+    , fTopLeftFragPosRead(kTopLeftFragPosRead_FragPosKey == desc.getHeader().fFragPosKey) {
+
+    const GrGLProgramDesc::KeyHeader& header = desc.getHeader();
+
+    fPositionVar = &fVSAttrs.push_back();
+    fPositionVar->set(kVec2f_GrSLType, GrGLShaderVar::kAttribute_TypeModifier, "aPosition");
+    if (-1 != header.fLocalCoordAttributeIndex) {
+        fLocalCoordsVar = &fVSAttrs.push_back();
+        fLocalCoordsVar->set(kVec2f_GrSLType,
+                             GrGLShaderVar::kAttribute_TypeModifier,
+                             "aLocalCoords");
+    } else {
+        fLocalCoordsVar = fPositionVar;
+    }
+    // Emit code to read the dst copy textue if necessary.
+    if (kNoDstRead_DstReadKey != header.fDstReadKey &&
+        GrGLCaps::kNone_FBFetchType == ctxInfo.caps()->fbFetchType()) {
+        bool topDown = SkToBool(kTopLeftOrigin_DstReadKeyBit & header.fDstReadKey);
+        const char* dstCopyTopLeftName;
+        const char* dstCopyCoordScaleName;
+        uint32_t configMask;
+        if (SkToBool(kUseAlphaConfig_DstReadKeyBit & header.fDstReadKey)) {
+            configMask = kA_GrColorComponentFlag;
+        } else {
+            configMask = kRGBA_GrColorComponentFlags;
+        }
+        fDstCopySampler.init(this, configMask, "rgba", 0);
+
+        fDstCopyTopLeftUniform = this->addUniform(kFragment_ShaderType,
+                                                  kVec2f_GrSLType,
+                                                  "DstCopyUpperLeft",
+                                                  &dstCopyTopLeftName);
+        fDstCopyScaleUniform     = this->addUniform(kFragment_ShaderType,
+                                                    kVec2f_GrSLType,
+                                                    "DstCopyCoordScale",
+                                                    &dstCopyCoordScaleName);
+        const char* fragPos = this->fragmentPosition();
+        this->fsCodeAppend("\t// Read color from copy of the destination.\n");
+        this->fsCodeAppendf("\tvec2 _dstTexCoord = (%s.xy - %s) * %s;\n",
+                            fragPos, dstCopyTopLeftName, dstCopyCoordScaleName);
+        if (!topDown) {
+            this->fsCodeAppend("\t_dstTexCoord.y = 1.0 - _dstTexCoord.y;\n");
+        }
+        this->fsCodeAppendf("\tvec4 %s = ", kDstCopyColorName);
+        this->appendTextureLookup(kFragment_ShaderType, fDstCopySampler, "_dstTexCoord");
+        this->fsCodeAppend(";\n\n");
+    }
 }
 
-void GrGLShaderBuilder::setupTextureAccess(const char* varyingFSName, GrSLType varyingType) {
-    // FIXME: We don't know how the custom stage will manipulate the coords. So we give up on using
-    // projective texturing and always give the stage 2D coords. This will be fixed when custom
-    // stages are repsonsible for setting up their own tex coords / tex matrices.
-    switch (varyingType) {
-        case kVec2f_GrSLType:
-            fDefaultTexCoordsName = varyingFSName;
-            fTexCoordVaryingType = kVec2f_GrSLType;
-            break;
-        case kVec3f_GrSLType: {
-            fDefaultTexCoordsName = "inCoord";
-            GrAssert(kNonStageIdx != fCurrentStage);
-            fDefaultTexCoordsName.appendS32(fCurrentStage);
-            fTexCoordVaryingType = kVec3f_GrSLType;
-            fFSCode.appendf("\t%s %s = %s.xy / %s.z;\n",
-                            GrGLShaderVar::TypeString(kVec2f_GrSLType),
-                            fDefaultTexCoordsName.c_str(),
-                            varyingFSName,
-                            varyingFSName);
-            break;
-        }
+bool GrGLShaderBuilder::enableFeature(GLSLFeature feature) {
+    switch (feature) {
+        case kStandardDerivatives_GLSLFeature:
+            if (!fCtxInfo.caps()->shaderDerivativeSupport()) {
+                return false;
+            }
+            if (kES2_GrGLBinding == fCtxInfo.binding()) {
+                this->addFSFeature(1 << kStandardDerivatives_GLSLFeature,
+                                   "GL_OES_standard_derivatives");
+            }
+            return true;
         default:
-            GrCrash("Tex coords must either be Vec2f or Vec3f");
+            GrCrash("Unexpected GLSLFeature requested.");
+            return false;
     }
+}
+
+bool GrGLShaderBuilder::enablePrivateFeature(GLSLPrivateFeature feature) {
+    switch (feature) {
+        case kFragCoordConventions_GLSLPrivateFeature:
+            if (!fCtxInfo.caps()->fragCoordConventionsSupport()) {
+                return false;
+            }
+            if (fCtxInfo.glslGeneration() < k150_GrGLSLGeneration) {
+                this->addFSFeature(1 << kFragCoordConventions_GLSLPrivateFeature,
+                                   "GL_ARB_fragment_coord_conventions");
+            }
+            return true;
+        case kEXTShaderFramebufferFetch_GLSLPrivateFeature:
+            if (GrGLCaps::kEXT_FBFetchType != fCtxInfo.caps()->fbFetchType()) {
+                return false;
+            }
+            this->addFSFeature(1 << kEXTShaderFramebufferFetch_GLSLPrivateFeature,
+                               "GL_EXT_shader_framebuffer_fetch");
+            return true;
+        case kNVShaderFramebufferFetch_GLSLPrivateFeature:
+            if (GrGLCaps::kNV_FBFetchType != fCtxInfo.caps()->fbFetchType()) {
+                return false;
+            }
+            this->addFSFeature(1 << kNVShaderFramebufferFetch_GLSLPrivateFeature,
+                               "GL_NV_shader_framebuffer_fetch");
+            return true;
+        default:
+            GrCrash("Unexpected GLSLPrivateFeature requested.");
+            return false;
+    }
+}
+
+void GrGLShaderBuilder::addFSFeature(uint32_t featureBit, const char* extensionName) {
+    if (!(featureBit & fFSFeaturesAddedMask)) {
+        fFSExtensions.appendf("#extension %s: require\n", extensionName);
+        fFSFeaturesAddedMask |= featureBit;
+    }
+}
+
+void GrGLShaderBuilder::nameVariable(SkString* out, char prefix, const char* name) {
+    if ('\0' == prefix) {
+        *out = name;
+    } else {
+        out->printf("%c%s", prefix, name);
+    }
+    if (fCodeStage.inStageCode()) {
+        if (out->endsWith('_')) {
+            // Names containing "__" are reserved.
+            out->append("x");
+        }
+        out->appendf("_Stage%d", fCodeStage.stageIndex());
+    }
+}
+
+const char* GrGLShaderBuilder::dstColor() {
+    if (fCodeStage.inStageCode()) {
+        const GrEffectRef& effect = *fCodeStage.effectStage()->getEffect();
+        if (!effect->willReadDstColor()) {
+            GrDebugCrash("GrGLEffect asked for dst color but its generating GrEffect "
+                         "did not request access.");
+            return "";
+        }
+    }
+    static const char kFBFetchColorName[] = "gl_LastFragData[0]";
+    GrGLCaps::FBFetchType fetchType = fCtxInfo.caps()->fbFetchType();
+    if (GrGLCaps::kEXT_FBFetchType == fetchType) {
+        SkAssertResult(this->enablePrivateFeature(kEXTShaderFramebufferFetch_GLSLPrivateFeature));
+        return kFBFetchColorName;
+    } else if (GrGLCaps::kNV_FBFetchType == fetchType) {
+        SkAssertResult(this->enablePrivateFeature(kNVShaderFramebufferFetch_GLSLPrivateFeature));
+        return kFBFetchColorName;
+    } else if (fDstCopySampler.isInitialized()) {
+        return kDstCopyColorName;
+    } else {
+        return "";
+    }
+}
+
+void GrGLShaderBuilder::codeAppendf(ShaderType type, const char format[], va_list args) {
+    SkString* string = NULL;
+    switch (type) {
+        case kVertex_ShaderType:
+            string = &fVSCode;
+            break;
+        case kGeometry_ShaderType:
+            string = &fGSCode;
+            break;
+        case kFragment_ShaderType:
+            string = &fFSCode;
+            break;
+        default:
+            GrCrash("Invalid shader type");
+    }
+    string->appendf(format, args);
+}
+
+void GrGLShaderBuilder::codeAppend(ShaderType type, const char* str) {
+    SkString* string = NULL;
+    switch (type) {
+        case kVertex_ShaderType:
+            string = &fVSCode;
+            break;
+        case kGeometry_ShaderType:
+            string = &fGSCode;
+            break;
+        case kFragment_ShaderType:
+            string = &fFSCode;
+            break;
+        default:
+            GrCrash("Invalid shader type");
+    }
+    string->append(str);
 }
 
 void GrGLShaderBuilder::appendTextureLookup(SkString* out,
                                             const GrGLShaderBuilder::TextureSampler& sampler,
                                             const char* coordName,
                                             GrSLType varyingType) const {
-    GrAssert(NULL != sampler.textureAccess());
+    GrAssert(NULL != coordName);
 
-    if (NULL == coordName) {
-        coordName = fDefaultTexCoordsName.c_str();
-        varyingType = kVec2f_GrSLType;
-    }
     out->appendf("%s(%s, %s)",
-                 sample_function_name(varyingType),
+                 sample_function_name(varyingType, fCtxInfo.glslGeneration()),
                  this->getUniformCStr(sampler.fSamplerUniform),
                  coordName);
-    append_swizzle(out, *sampler.textureAccess(), fContext.caps());
+    append_swizzle(out, sampler, *fCtxInfo.caps());
+}
+
+void GrGLShaderBuilder::appendTextureLookup(ShaderType type,
+                                            const GrGLShaderBuilder::TextureSampler& sampler,
+                                            const char* coordName,
+                                            GrSLType varyingType) {
+    GrAssert(kFragment_ShaderType == type);
+    this->appendTextureLookup(&fFSCode, sampler, coordName, varyingType);
 }
 
 void GrGLShaderBuilder::appendTextureLookupAndModulate(
-                                            SkString* out,
+                                            ShaderType type,
                                             const char* modulation,
                                             const GrGLShaderBuilder::TextureSampler& sampler,
                                             const char* coordName,
-                                            GrSLType varyingType) const {
-    GrAssert(NULL != out);
+                                            GrSLType varyingType) {
+    GrAssert(kFragment_ShaderType == type);
     SkString lookup;
     this->appendTextureLookup(&lookup, sampler, coordName, varyingType);
-    GrGLSLModulate4f(out, modulation, lookup.c_str());
+    GrGLSLModulatef<4>(&fFSCode, modulation, lookup.c_str());
 }
 
-GrCustomStage::StageKey GrGLShaderBuilder::KeyForTextureAccess(const GrTextureAccess& access,
-                                                               const GrGLCaps& caps) {
-    GrCustomStage::StageKey key = 0;
-
-    // Assume that swizzle support implies that we never have to modify a shader to adjust
-    // for texture format/swizzle settings.
-    if (!caps.textureSwizzleSupport() && swizzle_requires_alpha_remapping(caps, access)) {
-        key = 1;
+GrBackendEffectFactory::EffectKey GrGLShaderBuilder::KeyForTextureAccess(
+                                                            const GrTextureAccess& access,
+                                                            const GrGLCaps& caps) {
+    uint32_t configComponentMask = GrPixelConfigComponentMask(access.getTexture()->config());
+    if (swizzle_requires_alpha_remapping(caps, configComponentMask, access.swizzleMask())) {
+        return 1;
+    } else {
+        return 0;
     }
-    #if GR_DEBUG
-        // Assert that key is set iff the swizzle will be modified.
-        SkString origString(access.getSwizzle());
-        origString.prepend(".");
-        SkString modifiedString;
-        append_swizzle(&modifiedString, access, caps);
-        GrAssert(SkToBool(key) == (modifiedString != origString));
-    #endif
-    return key;
 }
+
+GrGLShaderBuilder::DstReadKey GrGLShaderBuilder::KeyForDstRead(const GrTexture* dstCopy,
+                                                               const GrGLCaps& caps) {
+    uint32_t key = kYesDstRead_DstReadKeyBit;
+    if (GrGLCaps::kNone_FBFetchType != caps.fbFetchType()) {
+        return key;
+    }
+    GrAssert(NULL != dstCopy);
+    if (!caps.textureSwizzleSupport() && GrPixelConfigIsAlphaOnly(dstCopy->config())) {
+        // The fact that the config is alpha-only must be considered when generating code.
+        key |= kUseAlphaConfig_DstReadKeyBit;
+    }
+    if (kTopLeft_GrSurfaceOrigin == dstCopy->origin()) {
+        key |= kTopLeftOrigin_DstReadKeyBit;
+    }
+    GrAssert(static_cast<DstReadKey>(key) == key);
+    return static_cast<DstReadKey>(key);
+}
+
+GrGLShaderBuilder::FragPosKey GrGLShaderBuilder::KeyForFragmentPosition(const GrRenderTarget* dst,
+                                                                        const GrGLCaps&) {
+    if (kTopLeft_GrSurfaceOrigin == dst->origin()) {
+        return kTopLeftFragPosRead_FragPosKey;
+    } else {
+        return kBottomLeftFragPosRead_FragPosKey;
+    }
+}
+
 
 const GrGLenum* GrGLShaderBuilder::GetTexParamSwizzle(GrPixelConfig config, const GrGLCaps& caps) {
     if (caps.textureSwizzleSupport() && GrPixelConfigIsAlphaOnly(config)) {
@@ -190,7 +386,7 @@ GrGLUniformManager::UniformHandle GrGLShaderBuilder::addUniformArray(uint32_t vi
                                                                      int count,
                                                                      const char** outName) {
     GrAssert(name && strlen(name));
-    static const uint32_t kVisibilityMask = kVertex_ShaderType | kFragment_ShaderType;
+    SkDEBUGCODE(static const uint32_t kVisibilityMask = kVertex_ShaderType | kFragment_ShaderType);
     GrAssert(0 == (~kVisibilityMask & visibility));
     GrAssert(0 != visibility);
 
@@ -203,12 +399,7 @@ GrGLUniformManager::UniformHandle GrGLShaderBuilder::addUniformArray(uint32_t vi
     GrAssert(h2 == h);
     uni.fVariable.setType(type);
     uni.fVariable.setTypeModifier(GrGLShaderVar::kUniform_TypeModifier);
-    SkString* uniName = uni.fVariable.accessName();
-    if (kNonStageIdx == fCurrentStage) {
-        uniName->printf("u%s", name);
-    } else {
-        uniName->printf("u%s%d", name, fCurrentStage);
-    }
+    this->nameVariable(uni.fVariable.accessName(), 'u', name);
     uni.fVariable.setArrayCount(count);
     uni.fVisibility = visibility;
 
@@ -231,18 +422,31 @@ const GrGLShaderVar& GrGLShaderBuilder::getUniformVariable(UniformHandle u) cons
     return fUniforms[handle_to_index(u)].fVariable;
 }
 
+bool GrGLShaderBuilder::addAttribute(GrSLType type,
+                                     const char* name) {
+    for (int i = 0; i < fVSAttrs.count(); ++i) {
+        const GrGLShaderVar& attr = fVSAttrs[i];
+        // if attribute already added, don't add it again
+        if (attr.getName().equals(name)) {
+            GrAssert(attr.getType() == type);
+            return false;
+        }
+    }
+    fVSAttrs.push_back().set(type,
+                             GrGLShaderVar::kAttribute_TypeModifier,
+                             name);
+    return true;
+}
+
 void GrGLShaderBuilder::addVarying(GrSLType type,
                                    const char* name,
                                    const char** vsOutName,
                                    const char** fsInName) {
     fVSOutputs.push_back();
     fVSOutputs.back().setType(type);
-    fVSOutputs.back().setTypeModifier(GrGLShaderVar::kOut_TypeModifier);
-    if (kNonStageIdx == fCurrentStage) {
-        fVSOutputs.back().accessName()->printf("v%s", name);
-    } else {
-        fVSOutputs.back().accessName()->printf("v%s%d", name, fCurrentStage);
-    }
+    fVSOutputs.back().setTypeModifier(GrGLShaderVar::kVaryingOut_TypeModifier);
+    this->nameVariable(fVSOutputs.back().accessName(), 'v', name);
+
     if (vsOutName) {
         *vsOutName = fVSOutputs.back().getName().c_str();
     }
@@ -253,29 +457,78 @@ void GrGLShaderBuilder::addVarying(GrSLType type,
         // and output as non-array.
         fGSInputs.push_back();
         fGSInputs.back().setType(type);
-        fGSInputs.back().setTypeModifier(GrGLShaderVar::kIn_TypeModifier);
+        fGSInputs.back().setTypeModifier(GrGLShaderVar::kVaryingIn_TypeModifier);
         fGSInputs.back().setUnsizedArray();
         *fGSInputs.back().accessName() = fVSOutputs.back().getName();
         fGSOutputs.push_back();
         fGSOutputs.back().setType(type);
-        fGSOutputs.back().setTypeModifier(GrGLShaderVar::kOut_TypeModifier);
-        if (kNonStageIdx == fCurrentStage) {
-            fGSOutputs.back().accessName()->printf("g%s", name);
-        } else {
-            fGSOutputs.back().accessName()->printf("g%s%d", name, fCurrentStage);
-        }
+        fGSOutputs.back().setTypeModifier(GrGLShaderVar::kVaryingOut_TypeModifier);
+        this->nameVariable(fGSOutputs.back().accessName(), 'g', name);
         fsName = fGSOutputs.back().accessName();
     } else {
         fsName = fVSOutputs.back().accessName();
     }
     fFSInputs.push_back();
     fFSInputs.back().setType(type);
-    fFSInputs.back().setTypeModifier(GrGLShaderVar::kIn_TypeModifier);
+    fFSInputs.back().setTypeModifier(GrGLShaderVar::kVaryingIn_TypeModifier);
     fFSInputs.back().setName(*fsName);
     if (fsInName) {
         *fsInName = fsName->c_str();
     }
 }
+
+const char* GrGLShaderBuilder::fragmentPosition() {
+    if (fCodeStage.inStageCode()) {
+        const GrEffectRef& effect = *fCodeStage.effectStage()->getEffect();
+        if (!effect->willReadFragmentPosition()) {
+            GrDebugCrash("GrGLEffect asked for frag position but its generating GrEffect "
+                         "did not request access.");
+            return "";
+        }
+    }
+    if (fTopLeftFragPosRead) {
+        if (!fSetupFragPosition) {
+            fFSInputs.push_back().set(kVec4f_GrSLType,
+                                      GrGLShaderVar::kIn_TypeModifier,
+                                      "gl_FragCoord",
+                                      GrGLShaderVar::kDefault_Precision);
+            fSetupFragPosition = true;
+        }
+        return "gl_FragCoord";
+    } else if (fCtxInfo.caps()->fragCoordConventionsSupport()) {
+        if (!fSetupFragPosition) {
+            SkAssertResult(this->enablePrivateFeature(kFragCoordConventions_GLSLPrivateFeature));
+            fFSInputs.push_back().set(kVec4f_GrSLType,
+                                      GrGLShaderVar::kIn_TypeModifier,
+                                      "gl_FragCoord",
+                                      GrGLShaderVar::kDefault_Precision,
+                                      GrGLShaderVar::kUpperLeft_Origin);
+            fSetupFragPosition = true;
+        }
+        return "gl_FragCoord";
+    } else {
+        static const char* kCoordName = "fragCoordYDown";
+        if (!fSetupFragPosition) {
+            // temporarily change the stage index because we're inserting non-stage code.
+            CodeStage::AutoStageRestore csar(&fCodeStage, NULL);
+
+            GrAssert(GrGLUniformManager::kInvalidUniformHandle == fRTHeightUniform);
+            const char* rtHeightName;
+
+            fRTHeightUniform = this->addUniform(kFragment_ShaderType,
+                                                kFloat_GrSLType,
+                                                "RTHeight",
+                                                &rtHeightName);
+
+            this->fFSCode.prependf("\tvec4 %s = vec4(gl_FragCoord.x, %s - gl_FragCoord.y, gl_FragCoord.zw);\n",
+                                   kCoordName, rtHeightName);
+            fSetupFragPosition = true;
+        }
+        GrAssert(GrGLUniformManager::kInvalidUniformHandle != fRTHeightUniform);
+        return kCoordName;
+    }
+}
+
 
 void GrGLShaderBuilder::emitFunction(ShaderType shader,
                                      GrSLType returnType,
@@ -285,16 +538,12 @@ void GrGLShaderBuilder::emitFunction(ShaderType shader,
                                      const char* body,
                                      SkString* outName) {
     GrAssert(kFragment_ShaderType == shader);
-    fFSFunctions.append(GrGLShaderVar::TypeString(returnType));
-    if (kNonStageIdx != fCurrentStage) {
-        outName->printf(" %s_%d", name, fCurrentStage);
-    } else {
-        *outName = name;
-    }
-    fFSFunctions.append(*outName);
+    fFSFunctions.append(GrGLSLTypeString(returnType));
+    this->nameVariable(outName, '\0', name);
+    fFSFunctions.appendf(" %s", outName->c_str());
     fFSFunctions.append("(");
     for (int i = 0; i < argCnt; ++i) {
-        args[i].appendDecl(fContext, &fFSFunctions);
+        args[i].appendDecl(fCtxInfo, &fFSFunctions);
         if (i < argCnt - 1) {
             fFSFunctions.append(", ");
         }
@@ -332,7 +581,7 @@ inline void append_default_precision_qualifier(GrGLShaderVar::Precision p,
 
 void GrGLShaderBuilder::appendDecls(const VarArray& vars, SkString* out) const {
     for (int i = 0; i < vars.count(); ++i) {
-        vars[i].appendDecl(fContext, out);
+        vars[i].appendDecl(fCtxInfo, out);
         out->append(";\n");
     }
 }
@@ -340,48 +589,148 @@ void GrGLShaderBuilder::appendDecls(const VarArray& vars, SkString* out) const {
 void GrGLShaderBuilder::appendUniformDecls(ShaderType stype, SkString* out) const {
     for (int i = 0; i < fUniforms.count(); ++i) {
         if (fUniforms[i].fVisibility & stype) {
-            fUniforms[i].fVariable.appendDecl(fContext, out);
+            fUniforms[i].fVariable.appendDecl(fCtxInfo, out);
             out->append(";\n");
         }
     }
 }
 
 void GrGLShaderBuilder::getShader(ShaderType type, SkString* shaderStr) const {
+    const char* version = GrGetGLSLVersionDecl(fCtxInfo.binding(), fCtxInfo.glslGeneration());
+
     switch (type) {
         case kVertex_ShaderType:
-            *shaderStr = fHeader;
+            *shaderStr = version;
             this->appendUniformDecls(kVertex_ShaderType, shaderStr);
             this->appendDecls(fVSAttrs, shaderStr);
             this->appendDecls(fVSOutputs, shaderStr);
+            shaderStr->append("void main() {\n");
             shaderStr->append(fVSCode);
+            shaderStr->append("}\n");
             break;
         case kGeometry_ShaderType:
             if (fUsesGS) {
-                *shaderStr = fHeader;
+                *shaderStr = version;
                 shaderStr->append(fGSHeader);
                 this->appendDecls(fGSInputs, shaderStr);
                 this->appendDecls(fGSOutputs, shaderStr);
+                shaderStr->append("void main() {\n");
                 shaderStr->append(fGSCode);
+                shaderStr->append("}\n");
             } else {
                 shaderStr->reset();
             }
             break;
         case kFragment_ShaderType:
-            *shaderStr = fHeader;
+            *shaderStr = version;
+            shaderStr->append(fFSExtensions);
             append_default_precision_qualifier(kDefaultFragmentPrecision,
-                                               fContext.binding(),
+                                               fCtxInfo.binding(),
                                                shaderStr);
             this->appendUniformDecls(kFragment_ShaderType, shaderStr);
             this->appendDecls(fFSInputs, shaderStr);
             // We shouldn't have declared outputs on 1.10
-            GrAssert(k110_GrGLSLGeneration != fContext.glslGeneration() || fFSOutputs.empty());
+            GrAssert(k110_GrGLSLGeneration != fCtxInfo.glslGeneration() || fFSOutputs.empty());
             this->appendDecls(fFSOutputs, shaderStr);
             shaderStr->append(fFSFunctions);
+            shaderStr->append("void main() {\n");
             shaderStr->append(fFSCode);
+            shaderStr->append("}\n");
             break;
     }
  }
 
 void GrGLShaderBuilder::finished(GrGLuint programID) {
     fUniformManager.getUniformLocations(programID, fUniforms);
+}
+
+void GrGLShaderBuilder::emitEffects(
+                        const GrEffectStage* effectStages[],
+                        const GrBackendEffectFactory::EffectKey effectKeys[],
+                        int effectCnt,
+                        SkString* fsInOutColor,
+                        GrSLConstantVec* fsInOutColorKnownValue,
+                        SkTArray<GrGLUniformManager::UniformHandle, true>* effectSamplerHandles[],
+                        GrGLEffect* glEffects[]) {
+    bool effectEmitted = false;
+
+    SkString inColor = *fsInOutColor;
+    SkString outColor;
+
+    for (int e = 0; e < effectCnt; ++e) {
+        GrAssert(NULL != effectStages[e] && NULL != effectStages[e]->getEffect());
+        const GrEffectStage& stage = *effectStages[e];
+        const GrEffectRef& effect = *stage.getEffect();
+
+        CodeStage::AutoStageRestore csar(&fCodeStage, &stage);
+
+        int numTextures = effect->numTextures();
+        SkSTArray<8, GrGLShaderBuilder::TextureSampler> textureSamplers;
+        textureSamplers.push_back_n(numTextures);
+        for (int t = 0; t < numTextures; ++t) {
+            textureSamplers[t].init(this, &effect->textureAccess(t), t);
+            effectSamplerHandles[e]->push_back(textureSamplers[t].fSamplerUniform);
+        }
+        GrDrawEffect drawEffect(stage, this->hasExplicitLocalCoords());
+
+        int numAttributes = stage.getVertexAttribIndexCount();
+        const int* attributeIndices = stage.getVertexAttribIndices();
+        SkSTArray<GrEffect::kMaxVertexAttribs, SkString> attributeNames;
+        for (int a = 0; a < numAttributes; ++a) {
+            // TODO: Make addAttribute mangle the name.
+            SkString attributeName("aAttr");
+            attributeName.appendS32(attributeIndices[a]);
+            if (this->addAttribute(effect->vertexAttribType(a), attributeName.c_str())) {
+                fEffectAttributes.push_back().set(attributeIndices[a], attributeName);
+            }
+        }
+
+        glEffects[e] = effect->getFactory().createGLInstance(drawEffect);
+
+        if (kZeros_GrSLConstantVec == *fsInOutColorKnownValue) {
+            // Effects have no way to communicate zeros, they treat an empty string as ones.
+            this->nameVariable(&inColor, '\0', "input");
+            this->fsCodeAppendf("\tvec4 %s = %s;\n", inColor.c_str(), GrGLSLZerosVecf(4));
+        }
+
+        // create var to hold stage result
+        this->nameVariable(&outColor, '\0', "output");
+        this->fsCodeAppendf("\tvec4 %s;\n", outColor.c_str());
+
+        // Enclose custom code in a block to avoid namespace conflicts
+        SkString openBrace;
+        openBrace.printf("\t{ // Stage %d: %s\n", fCodeStage.stageIndex(), glEffects[e]->name());
+        this->fVSCode.append(openBrace);
+        this->fFSCode.append(openBrace);
+
+        glEffects[e]->emitCode(this,
+                               drawEffect,
+                               effectKeys[e],
+                               outColor.c_str(),
+                               inColor.isEmpty() ? NULL : inColor.c_str(),
+                               textureSamplers);
+        this->fVSCode.append("\t}\n");
+        this->fFSCode.append("\t}\n");
+
+        inColor = outColor;
+        *fsInOutColorKnownValue = kNone_GrSLConstantVec;
+        effectEmitted = true;
+    }
+
+    if (effectEmitted) {
+        *fsInOutColor = outColor;
+    }
+}
+
+const SkString* GrGLShaderBuilder::getEffectAttributeName(int attributeIndex) const {
+    const AttributePair* attribEnd = this->getEffectAttributes().end();
+    for (const AttributePair* attrib = this->getEffectAttributes().begin();
+         attrib != attribEnd;
+         ++attrib) {
+        if (attrib->fIndex == attributeIndex) {
+            return &attrib->fName;
+        }
+    }
+
+    return NULL;
 }
