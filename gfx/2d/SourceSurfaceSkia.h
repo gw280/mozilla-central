@@ -26,7 +26,7 @@ public:
   virtual IntSize GetSize() const;
   virtual SurfaceFormat GetFormat() const;
 
-  SkCanvas* GetCanvas() { return mCanvas; }
+  SkBitmap& GetBitmap() { return mBitmap; }
 
   bool InitFromData(unsigned char* aData,
                     const IntSize &aSize,

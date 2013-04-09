@@ -75,20 +75,19 @@ SourceSurfaceSkia::InitFromData(unsigned char* aData,
   temp.setConfig(GfxFormatToSkiaConfig(aFormat), aSize.width, aSize.height, aStride);
   temp.setPixels(aData);
 
-  SkAutoTUnref<SkDevice> device(new SkDevice(temp.getConfig(), aSize.width, aSize.height));
+  SkAutoTUnref<SkDevice> device(new SkDevice(temp.getConfig(), aSize.width, aSize.height, aFormat == FORMAT_B8G8R8X8 ? true : false));
 
   if (!temp.copyTo(&mBitmap, GfxFormatToSkiaConfig(aFormat))) {
     return false;
   }
 
   if (aFormat == FORMAT_B8G8R8X8) {
-    SkBitmap& bitmap = device->accessBitmap();
+    const SkBitmap& bitmap = device->accessBitmap(true);
     bitmap.lockPixels();
     // We have to manually set the A channel to be 255 as Skia doesn't understand BGRX
     ConvertBGRXToBGRA(reinterpret_cast<unsigned char*>(mBitmap.getPixels()), aSize, aStride);
     bitmap.unlockPixels();
     bitmap.notifyPixelsChanged();
-    bitmap.setIsOpaque(true);
   }
 
   mSize = aSize;
@@ -98,7 +97,7 @@ SourceSurfaceSkia::InitFromData(unsigned char* aData,
 }
 
 bool
-SourceSurfaceSkia::InitWithBitmap(const SkBitmap& aBitmap);
+SourceSurfaceSkia::InitWithBitmap(const SkBitmap& aBitmap)
 {
   mFormat = SkiaConfigToGfxFormat(aBitmap.getConfig());
   mSize = IntSize(aBitmap.width(), aBitmap.height());
