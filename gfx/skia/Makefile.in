@@ -500,7 +500,7 @@ EXPORTS_skia += \
 	include/ports/SkTypeface_mac.h \
 	$(NULL)
 CPPSRCS += \
-	SkFontHost_mac_coretext.cpp \
+	SkFontHost_mac.cpp \
 	SkStream_mac.cpp \
 	SkThreadUtils_pthread.cpp \
 	SkThreadUtils_pthread_mach.cpp \
