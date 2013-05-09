@@ -713,11 +713,6 @@ CanvasRenderingContext2D::Redraw()
     return NS_OK;
   }
 
-  if (!mThebesSurface)
-    mThebesSurface =
-      gfxPlatform::GetPlatform()->GetThebesSurfaceForDrawTarget(mTarget);
-  mThebesSurface->MarkDirty();
-
   nsSVGEffects::InvalidateDirectRenderingObservers(mCanvasElement);
 
   mCanvasElement->InvalidateCanvasContent(nullptr);
@@ -744,11 +739,6 @@ CanvasRenderingContext2D::Redraw(const mgfx::Rect &r)
     NS_ASSERTION(mDocShell, "Redraw with no canvas element or docshell!");
     return;
   }
-
-  if (!mThebesSurface)
-    mThebesSurface =
-      gfxPlatform::GetPlatform()->GetThebesSurfaceForDrawTarget(mTarget);
-  mThebesSurface->MarkDirty();
 
   nsSVGEffects::InvalidateDirectRenderingObservers(mCanvasElement);
 
@@ -981,9 +971,29 @@ CanvasRenderingContext2D::GetInputStream(const char *aMimeType,
     return NS_ERROR_FAILURE;
   }
 
-  nsRefPtr<gfxASurface> surface;
+  RefPtr<DrawTarget> tempTarget;
+  if (mTarget->GetFormat() != FORMAT_B8G8R8A8) {
+    // The encoder is pretty picky about what pixel format it supports, so convert to something it likes
+ 
+    RefPtr<SourceSurface> tempSnapshot = mTarget->Snapshot();
 
-  if (NS_FAILED(GetThebesSurface(getter_AddRefs(surface)))) {
+    tempTarget = gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(mTarget->GetSize(), FORMAT_B8G8R8A8);
+
+    tempTarget->DrawSurface(tempSnapshot,
+                            mgfx::Rect(0, 0, mTarget->GetSize().width, mTarget->GetSize().height),
+                            mgfx::Rect(0, 0, mTarget->GetSize().width, mTarget->GetSize().height),
+                            DrawSurfaceOptions(),
+                            DrawOptions(1.0, OP_SOURCE));
+
+    tempTarget->Flush();
+  } else {
+    tempTarget = mTarget;
+  }
+
+  RefPtr<SourceSurface> snapshot = tempTarget->Snapshot();
+  RefPtr<DataSourceSurface> data = snapshot->GetDataSurface();
+
+  if (!data) {
     return NS_ERROR_FAILURE;
   }
 
@@ -1003,35 +1013,10 @@ CanvasRenderingContext2D::GetInputStream(const char *aMimeType,
     return NS_ERROR_FAILURE;
   }
 
-  nsAutoArrayPtr<uint8_t> imageBuffer(new (std::nothrow) uint8_t[mWidth * mHeight * 4]);
-  if (!imageBuffer) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
-
-  nsRefPtr<gfxImageSurface> imgsurf =
-    new gfxImageSurface(imageBuffer.get(),
-                        gfxIntSize(mWidth, mHeight),
-                        mWidth * 4,
-                        gfxASurface::ImageFormatARGB32);
-
-  if (!imgsurf || imgsurf->CairoStatus()) {
-    return NS_ERROR_FAILURE;
-  }
-
-  nsRefPtr<gfxContext> ctx = new gfxContext(imgsurf);
-
-  if (!ctx || ctx->HasError()) {
-    return NS_ERROR_FAILURE;
-  }
-
-  ctx->SetOperator(gfxContext::OPERATOR_SOURCE);
-  ctx->SetSource(surface, gfxPoint(0, 0));
-  ctx->Paint();
-
-  rv = encoder->InitFromData(imageBuffer.get(),
-                              mWidth * mHeight * 4, mWidth, mHeight, mWidth * 4,
-                              imgIEncoder::INPUT_FORMAT_HOSTARGB,
-                              nsDependentString(aEncoderOptions));
+  rv = encoder->InitFromData(data->GetData(),
+                             data->Stride() * mHeight, mWidth, mHeight, data->Stride(),
+                             imgIEncoder::INPUT_FORMAT_HOSTARGB,
+                             nsDependentString(aEncoderOptions));
   NS_ENSURE_SUCCESS(rv, rv);
 
   return CallQueryInterface(encoder, aStream);
@@ -3214,18 +3199,35 @@ CanvasRenderingContext2D::DrawWindow(nsIDOMWindow* window, double x,
   // save and restore it
   Matrix matrix = mTarget->GetTransform();
   nsRefPtr<gfxContext> thebes;
+  nsRefPtr<gfxImageSurface> temp;
   if (gfxPlatform::GetPlatform()->SupportsAzureContent()) {
     thebes = new gfxContext(mTarget);
   } else {
-    nsRefPtr<gfxASurface> drawSurf;
-    GetThebesSurface(getter_AddRefs(drawSurf));
-    thebes = new gfxContext(drawSurf);
+    temp = new gfxImageSurface(gfxIntSize(w, h),
+                               gfxASurface::ImageFormatARGB32);
+    temp->SetDeviceOffset(gfxPoint(-x, -y));
+    thebes = new gfxContext(temp);
   }
-  thebes->SetMatrix(gfxMatrix(matrix._11, matrix._12, matrix._21,
-                              matrix._22, matrix._31, matrix._32));
+  if (temp) {
+    thebes->Translate(gfxPoint(x, y));
+  } else {
+    thebes->SetMatrix(gfxMatrix(matrix._11, matrix._12, matrix._21,
+                                matrix._22, matrix._31, matrix._32));
+  }
   nsCOMPtr<nsIPresShell> shell = presContext->PresShell();
   unused << shell->RenderDocument(r, renderDocFlags, backgroundColor, thebes);
-  mTarget->SetTransform(matrix);
+  if (temp) {
+    RefPtr<SourceSurface> data =
+      mTarget->CreateSourceSurfaceFromData(temp->Data(),
+                                           IntSize(w, h),
+                                           temp->Stride(),
+                                           FORMAT_B8G8R8A8);
+    mgfx::Rect rect(0, 0, w, h);
+    mTarget->DrawSurface(data, rect, rect);
+    mTarget->Flush();
+  } else {
+    mTarget->SetTransform(matrix);
+  }
 
   // note that x and y are coordinates in the document that
   // we're drawing; x and y are drawn to 0,0 in current user
@@ -3668,21 +3670,22 @@ CanvasRenderingContext2D::PutImageData_explicit(int32_t x, int32_t y, uint32_t w
 NS_IMETHODIMP
 CanvasRenderingContext2D::GetThebesSurface(gfxASurface **surface)
 {
-  EnsureTarget();
-  if (!mThebesSurface) {
-    mThebesSurface =
-      gfxPlatform::GetPlatform()->GetThebesSurfaceForDrawTarget(mTarget);
-
-    if (!mThebesSurface) {
-      return NS_ERROR_FAILURE;
-    }
-  } else {
-    // Normally GetThebesSurfaceForDrawTarget will handle the flush, when
-    // we're returning a cached ThebesSurface we need to flush here.
-    mTarget->Flush();
+  if (mThebesSurface) {
+    mThebesSurface->Flush();
+    *surface = mThebesSurface;
+    return NS_OK;
   }
 
-  *surface = mThebesSurface;
+  EnsureTarget();
+
+  nsRefPtr<gfxASurface> thebesSurface =
+      gfxPlatform::GetPlatform()->GetThebesSurfaceForDrawTarget(mTarget);
+
+  if (!thebesSurface) {
+    return NS_ERROR_FAILURE;
+  }
+
+  *surface = thebesSurface;
   NS_ADDREF(*surface);
 
   return NS_OK;
