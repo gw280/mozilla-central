@@ -65,7 +65,7 @@ if CONFIG['MOZ_ENABLE_SKIA']:
 
 if CONFIG['MOZ_WIDGET_TOOLKIT'] in ('android', 'gtk2', 'gtk3', 'gonk', 'qt'):
     CPP_SOURCES += [
-        'ScaledFontFreetype.cpp',
+        'ScaledFontCairo.cpp',
     ]
 
 # Are we targeting x86 or x64?  If so, build SSE2 files.
