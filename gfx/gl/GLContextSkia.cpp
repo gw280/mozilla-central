@@ -113,6 +113,12 @@ GrGLvoid glCompileShader_mozilla(GrGLuint shader)
     return sGLContext->fCompileShader(shader);
 }
 
+GrGLvoid glCopyTexSubImage2D_mozilla(GrGLenum target, GrGLint level, GrGLint xoffset, GrGLint yoffset,
+                                     GrGLint x, GrGLint y, GrGLsizei width, GrGLsizei height)
+{
+    return sGLContext->fCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
+}
+
 GrGLuint glCreateProgram_mozilla(void)
 {
     return sGLContext->fCreateProgram();
@@ -682,6 +688,7 @@ GrGLInterface* CreateGrInterfaceFromGLContext(GLContext* context)
     interface->fClearStencil = glClearStencil_mozilla;
     interface->fColorMask = glColorMask_mozilla;
     interface->fCompileShader = glCompileShader_mozilla;
+    interface->fCopyTexSubImage2D = glCopyTexSubImage2D_mozilla;
     interface->fCreateProgram = glCreateProgram_mozilla;
     interface->fCreateShader = glCreateShader_mozilla;
     interface->fCullFace = glCullFace_mozilla;
