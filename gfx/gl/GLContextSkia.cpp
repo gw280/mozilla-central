@@ -124,6 +124,12 @@ GrGLvoid glCompileShader_mozilla(GrGLuint shader)
     return sGLContext.get()->fCompileShader(shader);
 }
 
+GrGLvoid glCopyTexSubImage2D_mozilla(GrGLenum target, GrGLint level, GrGLint xoffset, GrGLint yoffset,
+                                     GrGLint x, GrGLint y, GrGLsizei width, GrGLsizei height)
+{
+    return sGLContext.get()->fCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
+}
+
 GrGLuint glCreateProgram_mozilla(void)
 {
     return sGLContext.get()->fCreateProgram();
@@ -247,6 +253,11 @@ GrGLvoid glGenRenderbuffers_mozilla(GrGLsizei n, GrGLuint* renderbuffers)
 GrGLvoid glGenTextures_mozilla(GrGLsizei n, GrGLuint* textures)
 {
     return sGLContext.get()->fGenTextures(n, textures);
+}
+
+GrGLvoid glGenerateMipmap_mozilla(GrGLenum target)
+{
+    return sGLContext.get()->fGenerateMipmap(target);
 }
 
 GrGLvoid glGetBufferParameteriv_mozilla(GrGLenum target, GrGLenum pname, GrGLint* params)
@@ -736,6 +747,7 @@ GrGLInterface* CreateGrGLInterfaceFromGLContext(GLContext* context)
     i->fClearStencil = glClearStencil_mozilla;
     i->fColorMask = glColorMask_mozilla;
     i->fCompileShader = glCompileShader_mozilla;
+    i->fCopyTexSubImage2D = glCopyTexSubImage2D_mozilla;
     i->fCreateProgram = glCreateProgram_mozilla;
     i->fCreateShader = glCreateShader_mozilla;
     i->fCullFace = glCullFace_mozilla;
@@ -762,6 +774,7 @@ GrGLInterface* CreateGrGLInterfaceFromGLContext(GLContext* context)
     i->fGenRenderbuffers = glGenRenderbuffers_mozilla;
     i->fGetFramebufferAttachmentParameteriv = glGetFramebufferAttachmentParameteriv_mozilla;
     i->fGenTextures = glGenTextures_mozilla;
+    i->fGenerateMipmap = glGenerateMipmap_mozilla;
     i->fGetBufferParameteriv = glGetBufferParameteriv_mozilla;
     i->fGetError = glGetError_mozilla;
     i->fGetIntegerv = glGetIntegerv_mozilla;
