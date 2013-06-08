@@ -211,4 +211,9 @@
     #define SK_IGNORE_STDINT_DOT_H 
 #endif 
 
+// Skia uses SkMemory internally, and it is set up to use mozalloc for us
+// so let's #undef realloc and free as they cause issues in SkTemplates.h
+#undef realloc
+#undef free
+
 #endif
