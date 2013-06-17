@@ -6,9 +6,9 @@
 #include "skia/GrGLInterface.h"
 
 namespace mozilla {
-namespace gl {
-class GLContext;
+namespace gfx {
+class DrawTarget;
 }
 }
 
-GrGLInterface* CreateGrInterfaceFromGLContext(mozilla::gl::GLContext* context);
+GrGLInterface* CreateGrInterfaceFromDrawTarget(mozilla::gfx::DrawTarget* drawTarget);
