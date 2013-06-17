@@ -873,7 +873,7 @@ public:
                                      const IntSize &aSize,
                                      SurfaceFormat aFormat)
   {
-    MOZ_NOT_REACHED();
+    MOZ_NOT_REACHED("Only implemented in DrawTargetSkia with USE_SKIA_GPU");
   }
 #endif
 
