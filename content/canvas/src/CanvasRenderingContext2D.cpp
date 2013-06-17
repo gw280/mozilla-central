@@ -100,7 +100,10 @@
 #ifdef USE_SKIA_GPU
 #include "GLContext.h"
 #include "GLContextProvider.h"
+#include "GLContextSkia.h"
 #include "SurfaceTypes.h"
+using mozilla::gl::GLContext;
+using mozilla::gl::GLContextProvider;
 #endif
 
 #ifdef XP_WIN
@@ -440,15 +443,20 @@ public:
     CanvasRenderingContext2DUserData* self =
       static_cast<CanvasRenderingContext2DUserData*>(aData);
     CanvasRenderingContext2D* context = self->mContext;
-    if (self->mContext && context->mGLContext) {
-      if (self->mContext->mTarget != nullptr) {
-        // Since SkiaGL default to store drawing command until flush
-        // We will have to flush it before present.
-        self->mContext->mTarget->Flush();
-      }
-      context->mGLContext->MakeCurrent();
-      context->mGLContext->PublishFrame();
+    if (!context)
+      return;
+
+    GLContext* glContext = static_cast<GLContext*>(context->mTarget->GetGLContext());
+    if (!glContext)
+      return;
+
+    if (context->mTarget) {
+      // Since SkiaGL default to store drawing command until flush
+      // We will have to flush it before present.
+      context->mTarget->Flush();
     }
+    glContext->MakeCurrent();
+    glContext->PublishFrame();
   }
 #endif
 
@@ -798,19 +806,21 @@ CanvasRenderingContext2D::EnsureTarget()
          }
 #endif
 
-         mGLContext = mozilla::gl::GLContextProvider::CreateOffscreen(gfxIntSize(size.width,
-                                                                                 size.height),
-                                                                      caps,
-                                                                      mozilla::gl::GLContext::ContextFlagsNone);
+         nsRefPtr<GLContext> glContext = GLContextProvider::CreateOffscreen(
+           gfxIntSize(size.width, size.height),
+           caps,
+           GLContext::ContextFlagsNone);
 
-         if (mGLContext) {
-           mTarget = gfxPlatform::GetPlatform()->CreateDrawTargetForFBO(0, mGLContext, size, format);
+         if (glContext) {
+           mTarget = Factory::CreateUninitializedDrawTargetSkiaWithGLContext(glContext);
+           SkRefPtr<GrGLInterface> interface = CreateGrInterfaceFromDrawTarget(mTarget);
+           mTarget->InitWithGrGLInterface(interface.get(), size, format);
          } else {
            mTarget = layerManager->CreateDrawTarget(size, format);
          }
        } else
 #endif
-         mTarget = layerManager->CreateDrawTarget(size, format);
+       mTarget = layerManager->CreateDrawTarget(size, format);
      } else {
        mTarget = gfxPlatform::GetPlatform()->CreateOffscreenDrawTarget(size, format);
      }
@@ -895,6 +905,7 @@ CanvasRenderingContext2D::InitializeWithSurface(nsIDocShell *shell,
   SetDimensions(width, height);
   mTarget = gfxPlatform::GetPlatform()->
     CreateDrawTargetForSurface(surface, IntSize(width, height));
+
   if (!mTarget) {
     EnsureErrorTarget();
     mTarget = sErrorTarget;
@@ -3822,10 +3833,11 @@ CanvasRenderingContext2D::GetCanvasLayer(nsDisplayListBuilder* aBuilder,
 
   CanvasLayer::Data data;
 #ifdef USE_SKIA_GPU
-  if (mGLContext) {
+  GLContext* glContext = static_cast<GLContext*>(mTarget->GetGLContext());
+  if (glContext) {
     canvasLayer->SetPreTransactionCallback(
             CanvasRenderingContext2DUserData::PreTransactionCallback, userData);
-    data.mGLContext = mGLContext;
+    data.mGLContext = glContext;
   } else
 #endif
   {

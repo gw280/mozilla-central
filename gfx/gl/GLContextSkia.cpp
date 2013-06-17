@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "skia/GrGLInterface.h"
+#include "mozilla/gfx/2D.h"
 
 /* SkPostConfig.h includes windows.h, which includes windef.h
  * which redefines min/max. We don't want that. */
@@ -15,6 +16,7 @@
 #include "GLContext.h"
 
 using mozilla::gl::GLContext;
+using mozilla::gfx::DrawTarget;
 
 static GLContext* sGLContext;
 
@@ -22,7 +24,9 @@ extern "C" {
 
 void EnsureGLContext(const GrGLInterface* interface)
 {
-    sGLContext = (GLContext*)(interface->fCallbackData);
+    const DrawTarget* drawTarget = reinterpret_cast<const DrawTarget*>(interface->fCallbackData);
+    MOZ_ASSERT(drawTarget);
+    sGLContext = static_cast<GLContext*>(drawTarget->GetGLContext());
     sGLContext->MakeCurrent();
 }
 
@@ -662,12 +666,13 @@ GrGLvoid glBlitFramebuffer_mozilla(GrGLint srcX0, GrGLint srcY0,
 
 } // extern "C"
 
-GrGLInterface* CreateGrInterfaceFromGLContext(GLContext* context)
+SkRefPtr<GrGLInterface> CreateGrInterfaceFromDrawTarget(mozilla::gfx::DrawTarget* drawTarget)
 {
+    GLContext* context = static_cast<GLContext*>(drawTarget->GetGLContext());
     sGLContext = context;
 
     GrGLInterface* interface = new GrGLInterface();
-    interface->fCallbackData = reinterpret_cast<GrGLInterfaceCallbackData>(context);
+    interface->fCallbackData = reinterpret_cast<GrGLInterfaceCallbackData>(drawTarget);
     interface->fCallback = EnsureGLContext;
 
     // Core GL functions required by Ganesh
@@ -805,4 +810,3 @@ GrGLInterface* CreateGrInterfaceFromGLContext(GLContext* context)
 
     return interface;
 }
-
