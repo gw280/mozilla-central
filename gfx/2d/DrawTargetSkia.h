@@ -93,10 +93,15 @@ public:
 
   bool Init(const IntSize &aSize, SurfaceFormat aFormat);
   void Init(unsigned char* aData, const IntSize &aSize, int32_t aStride, SurfaceFormat aFormat);
+
 #ifdef USE_SKIA_GPU
-  void InitWithFBO(unsigned int aFBOID, SkRefPtr<GrContext> aGrContext, const IntSize &aSize, SurfaceFormat aFormat);
+  DrawTargetSkia(GenericRefCountedBase* aGLContext) : mGLContext(aGLContext) {}
+  virtual GenericRefCountedBase* GetGLContext() const MOZ_OVERRIDE { return mGLContext; }
+  void InitWithGrGLInterface(GrGLInterface* aGrGLInterface,
+                             const IntSize &aSize,
+                             SurfaceFormat aFormat) MOZ_OVERRIDE;
 #endif
-  
+
   operator std::string() const {
     std::stringstream stream;
     stream << "DrawTargetSkia(" << this << ")";
@@ -116,6 +121,8 @@ private:
 
 #ifdef USE_SKIA_GPU
   SkRefPtr<GrContext> mGrContext;
+  SkRefPtr<GrGLInterface> mGrGLInterface;
+  RefPtr<GenericRefCountedBase> mGLContext;
 #endif
 };
 
