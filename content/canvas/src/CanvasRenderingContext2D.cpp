@@ -815,8 +815,8 @@ CanvasRenderingContext2D::EnsureTarget()
 
          if (glContext) {
            mTarget = Factory::CreateUninitializedDrawTargetSkiaWithGLContext(glContext);
-           SkRefPtr<GrGLInterface> interface = CreateGrInterfaceFromDrawTarget(mTarget);
-           mTarget->InitWithGrGLInterface(interface.get(), size, format);
+           GrGLInterface* i = CreateGrInterfaceFromDrawTarget(mTarget);
+           mTarget->InitWithGrGLInterface(i, size, format);
          } else {
            mTarget = layerManager->CreateDrawTarget(size, format);
          }

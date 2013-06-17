@@ -11,4 +11,4 @@ class DrawTarget;
 }
 }
 
-SkRefPtr<GrGLInterface> CreateGrInterfaceFromDrawTarget(mozilla::gfx::DrawTarget* drawTarget);
+GrGLInterface* CreateGrInterfaceFromDrawTarget(mozilla::gfx::DrawTarget* drawTarget);
