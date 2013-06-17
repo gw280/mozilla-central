@@ -95,12 +95,6 @@ DrawTargetSkia::~DrawTargetSkia()
     // All snapshots will now have copied data.
     mSnapshots.clear();
   }
-
-  // The GrGLInterface that we own has a raw pointer back to us, encoded in
-  // its fCallbackData field. We must clear it now.
-  if (mGrGLInterface) {
-    mGrGLInterface->fCallbackData = 0;
-  }
 }
 
 TemporaryRef<SourceSurface>
@@ -639,9 +633,13 @@ DrawTargetSkia::InitWithGrGLInterface(GrGLInterface* aGrGLInterface,
 {
   mSize = aSize;
   mFormat = aFormat;
-  mGrGLInterface = aGrGLInterface;
   GrBackendContext backendContext = reinterpret_cast<GrBackendContext>(aGrGLInterface);
-  mGrContext = GrContext::Create(kOpenGL_GrBackend, backendContext);
+  // The SkAutoTUnref's here ensure that we do not addref aGrGLInterface and the
+  // newly created GrContext: in the Skia/WebKit world, refcounted objects are born
+  // already addref'd! Accidentally addref'ing them a second time by assigning them
+  // to SkRefPtr's is a cause of leaks.
+  mGrGLInterface = SkAutoTUnref<GrGLInterface>(aGrGLInterface);
+  mGrContext = SkAutoTUnref<GrContext>(GrContext::Create(kOpenGL_GrBackend, backendContext));
 
   GrBackendRenderTargetDesc targetDescriptor;
 
