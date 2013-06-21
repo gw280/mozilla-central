@@ -629,10 +629,6 @@ CanvasRenderingContext2D::Reset()
 
   mTarget = nullptr;
 
-#ifdef USE_SKIA_GPU
-  mGLContext = nullptr;
-#endif
-
   // Since the target changes the backing texture will change, and this will
   // no longer be valid.
   mIsEntireFrameInvalid = false;
