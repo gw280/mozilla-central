@@ -130,6 +130,7 @@ private:
   IntSize mSize;
   SkRefPtr<SkCanvas> mCanvas;
   std::vector<SourceSurfaceSkia*> mSnapshots;
+  bool mSoftClipping;
 };
 
 }
