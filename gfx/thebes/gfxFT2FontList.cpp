@@ -178,6 +178,10 @@ FT2FontEntry::CreateScaledFont(const gfxFontStyle *aStyle)
         cairo_font_options_set_hint_metrics(fontOptions, CAIRO_HINT_METRICS_OFF);
     }
 
+    if (!CairoFontFace()) {
+        return nullptr;
+    }
+
     scaledFont = cairo_scaled_font_create(CairoFontFace(),
                                           &sizeMatrix,
                                           &identityMatrix, fontOptions);
