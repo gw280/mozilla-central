@@ -60,14 +60,7 @@ static ANPTypefaceStyle anp_getStyle(const ANPTypeface* tf) {
 
 static int32_t anp_getFontPath(const ANPTypeface* tf, char fileName[],
                                int32_t length, int32_t* index) {
-    SkStream* stream = tf->openStream(index);
-    if (stream->getFileName()) {
-      strcpy(fileName, stream->getFileName());
-    } else {
-      return 0;
-    }
-
-    return strlen(fileName);
+    return 0;
 }
 
 static const char* gFontDir;
