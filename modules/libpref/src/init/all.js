@@ -330,10 +330,11 @@ pref("gfx.content.azure.enabled", true);
 // Accelerated cg canvas where available (10.7+)
 pref("gfx.canvas.azure.accelerated", false);
 #else
-pref("gfx.canvas.azure.backends", "cairo");
+pref("gfx.canvas.azure.backends", "skia");
 pref("gfx.content.azure.backends", "cairo");
 #endif
 #endif
+pref("gfx.canvas.azure.accelerated", true);
 
 #ifdef ANDROID
 pref("gfx.textures.poweroftwo.force-enabled", false);
