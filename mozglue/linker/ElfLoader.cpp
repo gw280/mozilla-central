@@ -66,6 +66,10 @@ __wrap_dlsym(void *handle, const char *symbol)
     LibHandle *h = reinterpret_cast<LibHandle *>(handle);
     return h->GetSymbolPtr(symbol);
   }
+  if (strcmp("dlopen", symbol) == 0) {
+    return (void*)__wrap_dlopen;
+  }
+
   return dlsym(handle, symbol);
 }
 
