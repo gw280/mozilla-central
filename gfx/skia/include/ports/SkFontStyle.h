@@ -10,7 +10,7 @@
 
 #include "SkTypes.h"
 
-class SkFontStyle {
+class SK_API SkFontStyle {
 public:
     enum Weight {
         kThin_Weight        = 100,
@@ -50,6 +50,7 @@ public:
 
     int weight() const { return fUnion.fR.fWeight; }
     int width() const { return fUnion.fR.fWidth; }
+    Slant slant() const { return (Slant)fUnion.fR.fSlant; }
 
     bool isItalic() const {
         return kItalic_Slant == fUnion.fR.fSlant;

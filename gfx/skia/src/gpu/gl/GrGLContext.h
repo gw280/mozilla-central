@@ -47,12 +47,14 @@ public:
     GrGLVersion version() const { return fGLVersion; }
     GrGLSLGeneration glslGeneration() const { return fGLSLGeneration; }
     GrGLVendor vendor() const { return fVendor; }
+    /** Is this a mesa-based driver. Does not mean it is the osmesa software rasterizer. */
+    bool isMesa() const { return fIsMesa; }
     const GrGLCaps* caps() const { return fGLCaps.get(); }
     GrGLCaps* caps() { return fGLCaps; }
+    const GrGLExtensions& extensions() const { return fExtensions; }
 
     /**
-     * Checks for extension support using a cached copy of the GL_EXTENSIONS
-     * string.
+     * Shortcut for extensions().has(ext);
      */
     bool hasExtension(const char* ext) const {
         if (!this->isInitialized()) {
@@ -73,6 +75,7 @@ private:
     GrGLSLGeneration        fGLSLGeneration;
     GrGLVendor              fVendor;
     GrGLExtensions          fExtensions;
+    bool                    fIsMesa;
     SkAutoTUnref<GrGLCaps>  fGLCaps;
 };
 

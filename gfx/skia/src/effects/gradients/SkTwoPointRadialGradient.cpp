@@ -120,14 +120,9 @@ void shadeSpan_twopoint_clamp(SkScalar fx, SkScalar dx,
     for (; count > 0; --count) {
         SkFixed t = two_point_radial(b, fx, fy, fSr2D2, foura,
                                      fOneOverTwoA, posRoot);
-        if (t < 0) {
-            *dstC++ = cache[SkGradientShaderBase::kCache32ClampLower];
-        } else if (t > 0xFFFF) {
-            *dstC++ = cache[SkGradientShaderBase::kCache32ClampUpper];
-        } else {
-            SkASSERT(t <= 0xFFFF);
-            *dstC++ = cache[t >> SkGradientShaderBase::kCache32Shift];
-        }
+        SkFixed index = SkClampMax(t, 0xFFFF);
+        SkASSERT(index <= 0xFFFF);
+        *dstC++ = cache[index >> SkGradientShaderBase::kCache32Shift];
         fx += dx;
         fy += dy;
         b += db;
@@ -175,10 +170,8 @@ void shadeSpan_twopoint_repeat(SkScalar fx, SkScalar dx,
 SkTwoPointRadialGradient::SkTwoPointRadialGradient(
     const SkPoint& start, SkScalar startRadius,
     const SkPoint& end, SkScalar endRadius,
-    const SkColor colors[], const SkScalar pos[],
-    int colorCount, SkShader::TileMode mode,
-    SkUnitMapper* mapper)
-    : SkGradientShaderBase(colors, pos, colorCount, mode, mapper),
+    const Descriptor& desc)
+    : SkGradientShaderBase(desc),
       fCenter1(start),
       fCenter2(end),
       fRadius1(startRadius),
@@ -383,7 +376,6 @@ void SkTwoPointRadialGradient::init() {
 
 // For brevity
 typedef GrGLUniformManager::UniformHandle UniformHandle;
-static const UniformHandle kInvalidUniformHandle = GrGLUniformManager::kInvalidUniformHandle;
 
 class GrGLRadial2Gradient : public GrGLGradientEffect {
 
@@ -523,8 +515,6 @@ GrEffectRef* GrRadial2Gradient::TestCreate(SkMWCRandom* random,
 GrGLRadial2Gradient::GrGLRadial2Gradient(const GrBackendEffectFactory& factory,
                                          const GrDrawEffect& drawEffect)
     : INHERITED(factory)
-    , fVSParamUni(kInvalidUniformHandle)
-    , fFSParamUni(kInvalidUniformHandle)
     , fVSVaryingName(NULL)
     , fFSVaryingName(NULL)
     , fCachedCenter(SK_ScalarMax)
@@ -543,23 +533,26 @@ void GrGLRadial2Gradient::emitCode(GrGLShaderBuilder* builder,
                                    const TextureSamplerArray& samplers) {
 
     this->emitYCoordUniform(builder);
-    const char* fsCoords;
-    const char* vsCoordsVarying;
+    SkString fsCoords;
+    SkString vsCoordsVarying;
     GrSLType coordsVaryingType;
     this->setupMatrix(builder, key, &fsCoords, &vsCoordsVarying, &coordsVaryingType);
 
     // 2 copies of uniform array, 1 for each of vertex & fragment shader,
     // to work around Xoom bug. Doesn't seem to cause performance decrease
     // in test apps, but need to keep an eye on it.
-    fVSParamUni = builder->addUniformArray(GrGLShaderBuilder::kVertex_ShaderType,
+    fVSParamUni = builder->addUniformArray(GrGLShaderBuilder::kVertex_Visibility,
                                            kFloat_GrSLType, "Radial2VSParams", 6);
-    fFSParamUni = builder->addUniformArray(GrGLShaderBuilder::kFragment_ShaderType,
+    fFSParamUni = builder->addUniformArray(GrGLShaderBuilder::kFragment_Visibility,
                                            kFloat_GrSLType, "Radial2FSParams", 6);
 
     // For radial gradients without perspective we can pass the linear
     // part of the quadratic as a varying.
-    if (kVec2f_GrSLType == coordsVaryingType) {
-        builder->addVarying(kFloat_GrSLType, "Radial2BCoeff", &fVSVaryingName, &fFSVaryingName);
+    GrGLShaderBuilder::VertexBuilder* vertexBuilder =
+        (kVec2f_GrSLType == coordsVaryingType) ? builder->getVertexBuilder() : NULL;
+    if (NULL != vertexBuilder) {
+        vertexBuilder->addVarying(kFloat_GrSLType, "Radial2BCoeff",
+                                    &fVSVaryingName, &fFSVaryingName);
     }
 
     // VS
@@ -571,11 +564,11 @@ void GrGLRadial2Gradient::emitCode(GrGLShaderBuilder* builder,
 
         // For radial gradients without perspective we can pass the linear
         // part of the quadratic as a varying.
-        if (kVec2f_GrSLType == coordsVaryingType) {
+        if (NULL != vertexBuilder) {
             // r2Var = 2 * (r2Parm[2] * varCoord.x - r2Param[3])
-            builder->vsCodeAppendf("\t%s = 2.0 *(%s * %s.x - %s);\n",
-                                   fVSVaryingName, p2.c_str(),
-                                   vsCoordsVarying, p3.c_str());
+            vertexBuilder->vsCodeAppendf("\t%s = 2.0 *(%s * %s.x - %s);\n",
+                                           fVSVaryingName, p2.c_str(),
+                                           vsCoordsVarying.c_str(), p3.c_str());
         }
     }
 
@@ -601,19 +594,19 @@ void GrGLRadial2Gradient::emitCode(GrGLShaderBuilder* builder,
         // If we we're able to interpolate the linear component,
         // bVar is the varying; otherwise compute it
         SkString bVar;
-        if (kVec2f_GrSLType == coordsVaryingType) {
+        if (NULL != vertexBuilder) {
             bVar = fFSVaryingName;
         } else {
             bVar = "b";
             builder->fsCodeAppendf("\tfloat %s = 2.0 * (%s * %s.x - %s);\n",
-                                   bVar.c_str(), p2.c_str(), fsCoords, p3.c_str());
+                                   bVar.c_str(), p2.c_str(), fsCoords.c_str(), p3.c_str());
         }
 
         // c = (x^2)+(y^2) - params[4]
         builder->fsCodeAppendf("\tfloat %s = dot(%s, %s) - %s;\n",
                                cName.c_str(),
-                               fsCoords,
-                               fsCoords,
+                               fsCoords.c_str(),
+                               fsCoords.c_str(),
                                p4.c_str());
 
         // If we aren't degenerate, emit some extra code, and accept a slightly
@@ -647,7 +640,7 @@ void GrGLRadial2Gradient::setData(const GrGLUniformManager& uman,
                                   const GrDrawEffect& drawEffect) {
     INHERITED::setData(uman, drawEffect);
     const GrRadial2Gradient& data = drawEffect.castEffect<GrRadial2Gradient>();
-    GrAssert(data.isDegenerate() == fIsDegenerate);
+    SkASSERT(data.isDegenerate() == fIsDegenerate);
     SkScalar centerX1 = data.center();
     SkScalar radius0 = data.radius();
     if (fCachedCenter != centerX1 ||

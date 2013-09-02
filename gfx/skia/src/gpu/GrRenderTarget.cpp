@@ -70,7 +70,7 @@ size_t GrRenderTarget::sizeInBytes() const {
     return (size_t)(size / 8);
 }
 
-void GrRenderTarget::flagAsNeedingResolve(const GrIRect* rect) {
+void GrRenderTarget::flagAsNeedingResolve(const SkIRect* rect) {
     if (kCanResolve_ResolveType == getResolveType()) {
         if (NULL != rect) {
             fResolveRect.join(*rect);
@@ -83,7 +83,7 @@ void GrRenderTarget::flagAsNeedingResolve(const GrIRect* rect) {
     }
 }
 
-void GrRenderTarget::overrideResolveRect(const GrIRect rect) {
+void GrRenderTarget::overrideResolveRect(const SkIRect rect) {
     fResolveRect = rect;
     if (fResolveRect.isEmpty()) {
         fResolveRect.setLargestInverted();
@@ -95,28 +95,7 @@ void GrRenderTarget::overrideResolveRect(const GrIRect rect) {
 }
 
 void GrRenderTarget::setStencilBuffer(GrStencilBuffer* stencilBuffer) {
-    if (stencilBuffer == fStencilBuffer) {
-        return;
-    }
-
-    if (NULL != fStencilBuffer) {
-        fStencilBuffer->unref();
-
-        GrContext* context = this->getContext();
-        if (NULL != context) {
-            context->purgeCache();
-        }
-
-        if (NULL != context) {
-            context->purgeCache();
-        }
-    }
-
-    fStencilBuffer = stencilBuffer;
-
-    if (NULL != fStencilBuffer) {
-        fStencilBuffer->ref();
-    }
+    SkRefCnt_SafeAssign(fStencilBuffer, stencilBuffer);
 }
 
 void GrRenderTarget::onRelease() {

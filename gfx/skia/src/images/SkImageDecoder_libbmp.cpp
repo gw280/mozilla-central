@@ -8,10 +8,11 @@
 
 
 #include "bmpdecoderhelper.h"
+#include "SkColorPriv.h"
 #include "SkImageDecoder.h"
 #include "SkScaledBitmapSampler.h"
 #include "SkStream.h"
-#include "SkColorPriv.h"
+#include "SkStreamHelpers.h"
 #include "SkTDArray.h"
 #include "SkTRegistry.h"
 
@@ -34,20 +35,33 @@ private:
 DEFINE_DECODER_CREATOR(BMPImageDecoder);
 ///////////////////////////////////////////////////////////////////////////////
 
-static SkImageDecoder* sk_libbmp_dfactory(SkStream* stream) {
+static bool is_bmp(SkStream* stream) {
     static const char kBmpMagic[] = { 'B', 'M' };
 
 
     char buffer[sizeof(kBmpMagic)];
 
-    if (stream->read(buffer, sizeof(kBmpMagic)) == sizeof(kBmpMagic) &&
-        !memcmp(buffer, kBmpMagic, sizeof(kBmpMagic))) {
+    return stream->read(buffer, sizeof(kBmpMagic)) == sizeof(kBmpMagic) &&
+        !memcmp(buffer, kBmpMagic, sizeof(kBmpMagic));
+}
+
+static SkImageDecoder* sk_libbmp_dfactory(SkStream* stream) {
+    if (is_bmp(stream)) {
         return SkNEW(SkBMPImageDecoder);
     }
     return NULL;
 }
 
 static SkTRegistry<SkImageDecoder*, SkStream*> gReg(sk_libbmp_dfactory);
+
+static SkImageDecoder::Format get_format_bmp(SkStream* stream) {
+    if (is_bmp(stream)) {
+        return SkImageDecoder::kBMP_Format;
+    }
+    return SkImageDecoder::kUnknown_Format;
+}
+
+static SkTRegistry<SkImageDecoder::Format, SkStream*> gFormatReg(get_format_bmp);
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -80,12 +94,15 @@ private:
 };
 
 bool SkBMPImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
+    // First read the entire stream, so that all of the data can be passed to
+    // the BmpDecoderHelper.
 
-    size_t length = stream->getLength();
-    SkAutoMalloc storage(length);
-
-    if (stream->read(storage.get(), length) != length) {
-        return false;
+    // Allocated space used to hold the data.
+    SkAutoMalloc storage;
+    // Byte length of all of the data.
+    const size_t length = CopyStreamToStorage(&storage, stream);
+    if (0 == length) {
+        return 0;
     }
 
     const bool justBounds = SkImageDecoder::kDecodeBounds_Mode == mode;
@@ -117,18 +134,12 @@ bool SkBMPImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode) {
 
     SkScaledBitmapSampler sampler(width, height, getSampleSize());
 
-    if (justBounds) {
-        bm->setConfig(config, sampler.scaledWidth(), sampler.scaledHeight());
-        bm->setIsOpaque(true);
-        return true;
-    }
-    // No Bitmap reuse supported for this format
-    if (!bm->isNull()) {
-        return false;
-    }
-
     bm->setConfig(config, sampler.scaledWidth(), sampler.scaledHeight());
     bm->setIsOpaque(true);
+
+    if (justBounds) {
+        return true;
+    }
 
     if (!this->allocPixelRef(bm, NULL)) {
         return false;

@@ -19,7 +19,7 @@ public:
     SK_DECLARE_INST_COUNT(Caps)
 
     GrDrawTargetCaps() { this->reset(); }
-    GrDrawTargetCaps(const GrDrawTargetCaps& other) { *this = other; }
+    GrDrawTargetCaps(const GrDrawTargetCaps& other) : INHERITED() { *this = other; }
     GrDrawTargetCaps& operator= (const GrDrawTargetCaps&);
 
     virtual void reset();
@@ -35,6 +35,8 @@ public:
     bool dualSourceBlendingSupport() const { return fDualSourceBlendingSupport; }
     bool bufferLockSupport() const { return fBufferLockSupport; }
     bool pathStencilingSupport() const { return fPathStencilingSupport; }
+    bool dstReadInShaderSupport() const { return fDstReadInShaderSupport; }
+    bool reuseScratchTextures() const { return fReuseScratchTextures; }
 
     int maxRenderTargetSize() const { return fMaxRenderTargetSize; }
     int maxTextureSize() const { return fMaxTextureSize; }
@@ -52,6 +54,8 @@ protected:
     bool fDualSourceBlendingSupport : 1;
     bool fBufferLockSupport         : 1;
     bool fPathStencilingSupport     : 1;
+    bool fDstReadInShaderSupport    : 1;
+    bool fReuseScratchTextures      : 1;
 
     int fMaxRenderTargetSize;
     int fMaxTextureSize;

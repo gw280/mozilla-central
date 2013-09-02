@@ -4,7 +4,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "gl/GrGLExtensions.h"
 #include "gl/GrGLInterface.h"
+#include "gl/GrGLUtil.h"
 
 #ifndef GL_GLEXT_PROTOTYPES
 #define GL_GLEXT_PROTOTYPES
@@ -18,9 +20,26 @@
 const GrGLInterface* GrGLCreateNativeInterface() {
     static SkAutoTUnref<GrGLInterface> glInterface;
     if (!glInterface.get()) {
+        GrGLExtensions extensions;
+        GrGLGetStringiProc getStringi;
+#if GL_ES_VERSION_3_0
+        getStringi = glGetStringi;
+#else
+        getStringi = (GrGLGetStringiProc) eglGetProcAddress("glGetStringi");
+#endif
+
+        if (!extensions.init(kES_GrGLBinding, glGetString, getStringi, glGetIntegerv)) {
+            return NULL;
+        }
+        const char* verStr = reinterpret_cast<const char*>(glGetString(GR_GL_VERSION));
+        GrGLVersion version = GrGLGetVersionFromString(verStr);
+        if (version < GR_GL_VER(2,0)) {
+            return NULL;
+        }
+
         GrGLInterface* interface = new GrGLInterface;
         glInterface.reset(interface);
-        interface->fBindingsExported = kES2_GrGLBinding;
+        interface->fBindingsExported = kES_GrGLBinding;
         interface->fActiveTexture = glActiveTexture;
         interface->fAttachShader = glAttachShader;
         interface->fBindAttribLocation = glBindAttribLocation;
@@ -37,6 +56,7 @@ const GrGLInterface* GrGLCreateNativeInterface() {
         interface->fColorMask = glColorMask;
         interface->fCompileShader = glCompileShader;
         interface->fCompressedTexImage2D = glCompressedTexImage2D;
+        interface->fCopyTexSubImage2D = glCopyTexSubImage2D;
         interface->fCreateProgram = glCreateProgram;
         interface->fCreateShader = glCreateShader;
         interface->fCullFace = glCullFace;
@@ -56,6 +76,7 @@ const GrGLInterface* GrGLCreateNativeInterface() {
         interface->fFlush = glFlush;
         interface->fFrontFace = glFrontFace;
         interface->fGenBuffers = glGenBuffers;
+        interface->fGenerateMipmap = glGenerateMipmap;
         interface->fGenTextures = glGenTextures;
         interface->fGenVertexArrays = glGenVertexArraysOES;
         interface->fGetBufferParameteriv = glGetBufferParameteriv;
@@ -66,6 +87,7 @@ const GrGLInterface* GrGLCreateNativeInterface() {
         interface->fGetShaderInfoLog = glGetShaderInfoLog;
         interface->fGetShaderiv = glGetShaderiv;
         interface->fGetString = glGetString;
+        interface->fGetStringi = getStringi; // located above
         interface->fGetUniformLocation = glGetUniformLocation;
         interface->fLineWidth = glLineWidth;
         interface->fLinkProgram = glLinkProgram;
@@ -87,12 +109,23 @@ const GrGLInterface* GrGLCreateNativeInterface() {
         interface->fTexParameteri = glTexParameteri;
         interface->fTexParameteriv = glTexParameteriv;
         interface->fTexSubImage2D = glTexSubImage2D;
-#if GL_ARB_texture_storage
-        interface->fTexStorage2D = glTexStorage2D;
-#elif GL_EXT_texture_storage
-        interface->fTexStorage2D = glTexStorage2DEXT;
+
+        if (version >= GR_GL_VER(3,0)) {
+#if GL_ES_VERSION_3_0
+            interface->fTexStorage2D = glTexStorage2D;
 #else
-        interface->fTexStorage2D = (GrGLTexStorage2DProc) eglGetProcAddress("glTexStorage2DEXT");
+            interface->fTexStorage2D = (GrGLTexStorage2DProc) eglGetProcAddress("glTexStorage2D");
+#endif
+        } else {
+#if GL_EXT_texture_storage
+            interface->fTexStorage2D = glTexStorage2DEXT;
+#else
+            interface->fTexStorage2D = (GrGLTexStorage2DProc) eglGetProcAddress("glTexStorage2DEXT");
+#endif
+        }
+
+#if GL_EXT_discard_framebuffer
+        interface->fDiscardFramebuffer = glDiscardFramebufferEXT;
 #endif
         interface->fUniform1f = glUniform1f;
         interface->fUniform1i = glUniform1i;
@@ -124,10 +157,23 @@ const GrGLInterface* GrGLCreateNativeInterface() {
         interface->fDeleteRenderbuffers = glDeleteRenderbuffers;
         interface->fFramebufferRenderbuffer = glFramebufferRenderbuffer;
         interface->fFramebufferTexture2D = glFramebufferTexture2D;
-#if GL_IMG_multisampled_render_to_texture
-        interface->fFramebufferTexture2DMultisample = glFramebufferTexture2DMultisampleIMG;
-        interface->fRenderbufferStorageMultisample = glRenderbufferStorageMultisampleIMG;
+        if (extensions.has("GL_EXT_multisampled_render_to_texture")) {
+#if GL_EXT_multisampled_render_to_texture
+            interface->fFramebufferTexture2DMultisample = glFramebufferTexture2DMultisampleEXT;
+            interface->fRenderbufferStorageMultisample = glRenderbufferStorageMultisampleEXT;
+#else
+            interface->fFramebufferTexture2DMultisample = (GrGLFramebufferTexture2DMultisampleProc) eglGetProcAddress("glFramebufferTexture2DMultisampleEXT");
+            interface->fRenderbufferStorageMultisample = (GrGLRenderbufferStorageMultisampleProc) eglGetProcAddress("glRenderbufferStorageMultisampleEXT");
 #endif
+        } else if (extensions.has("GL_IMG_multisampled_render_to_texture")) {
+#if GL_IMG_multisampled_render_to_texture
+            interface->fFramebufferTexture2DMultisample = glFramebufferTexture2DMultisampleIMG;
+            interface->fRenderbufferStorageMultisample = glRenderbufferStorageMultisampleIMG;
+#else
+            interface->fFramebufferTexture2DMultisample = (GrGLFramebufferTexture2DMultisampleProc) eglGetProcAddress("glFramebufferTexture2DMultisampleIMG");
+            interface->fRenderbufferStorageMultisample = (GrGLRenderbufferStorageMultisampleProc) eglGetProcAddress("glRenderbufferStorageMultisampleIMG");
+#endif
+        }
         interface->fGenFramebuffers = glGenFramebuffers;
         interface->fGenRenderbuffers = glGenRenderbuffers;
         interface->fGetFramebufferAttachmentParameteriv = glGetFramebufferAttachmentParameteriv;

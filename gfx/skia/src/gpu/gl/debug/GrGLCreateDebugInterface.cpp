@@ -32,6 +32,13 @@ GrGLvoid GR_GL_FUNCTION_TYPE debugGLActiveTexture(GrGLenum texture) {
     GrDebugGL::getInstance()->setCurTextureUnit(texture);
 }
 
+GrGLvoid GR_GL_FUNCTION_TYPE debugGLClientActiveTexture(GrGLenum texture) {
+
+    // Ganesh offsets the texture unit indices
+    texture -= GR_GL_TEXTURE0;
+    GrAlwaysAssert(texture < GrDebugGL::getInstance()->getMaxTextureUnits());
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 GrGLvoid GR_GL_FUNCTION_TYPE debugGLAttachShader(GrGLuint programID,
                                                  GrGLuint shaderID) {
@@ -202,7 +209,9 @@ GrGLvoid GR_GL_FUNCTION_TYPE debugGLReadPixels(GrGLint x,
  GrGLvoid GR_GL_FUNCTION_TYPE debugGLBindFramebuffer(GrGLenum target,
                                                      GrGLuint frameBufferID) {
 
-     GrAlwaysAssert(GR_GL_FRAMEBUFFER == target);
+     GrAlwaysAssert(GR_GL_FRAMEBUFFER == target ||
+                    GR_GL_READ_FRAMEBUFFER == target ||
+                    GR_GL_DRAW_FRAMEBUFFER);
 
      // a frameBufferID of 0 is acceptable - it binds to the default
      // frame buffer
@@ -366,7 +375,9 @@ GrGLvoid GR_GL_FUNCTION_TYPE debugGLReadPixels(GrGLint x,
          // bound frame buffer
          GrAlwaysAssert(!buffer->getColorBound());
          GrAlwaysAssert(!buffer->getDepthBound());
-         GrAlwaysAssert(!buffer->getStencilBound());
+         // However, at GrContext destroy time we release all GrRsources and so stencil buffers
+         // may get deleted before FBOs that refer to them.
+         //GrAlwaysAssert(!buffer->getStencilBound());
 
          GrAlwaysAssert(!buffer->getDeleted());
          buffer->deleteAction();
@@ -517,6 +528,9 @@ GrGLvoid debugGenObjs(GrDebugGL::GrObjTypes type,
 
 GrGLvoid GR_GL_FUNCTION_TYPE debugGLGenBuffers(GrGLsizei n, GrGLuint* ids) {
     debugGenObjs(GrDebugGL::kBuffer_ObjTypes, n, ids);
+}
+
+GrGLvoid GR_GL_FUNCTION_TYPE debugGLGenerateMipmap(GrGLenum level) {
 }
 
 GrGLvoid GR_GL_FUNCTION_TYPE debugGLGenFramebuffers(GrGLsizei n,
@@ -794,9 +808,11 @@ const GrGLInterface* GrGLCreateDebugInterface() {
     interface->fClear = noOpGLClear;
     interface->fClearColor = noOpGLClearColor;
     interface->fClearStencil = noOpGLClearStencil;
+    interface->fClientActiveTexture = debugGLClientActiveTexture;
     interface->fColorMask = noOpGLColorMask;
     interface->fCompileShader = noOpGLCompileShader;
     interface->fCompressedTexImage2D = noOpGLCompressedTexImage2D;
+    interface->fCopyTexSubImage2D = noOpGLCopyTexSubImage2D;
     interface->fCreateProgram = debugGLCreateProgram;
     interface->fCreateShader = debugGLCreateShader;
     interface->fCullFace = noOpGLCullFace;
@@ -808,17 +824,20 @@ const GrGLInterface* GrGLCreateDebugInterface() {
     interface->fDeleteVertexArrays = debugGLDeleteVertexArrays;
     interface->fDepthMask = noOpGLDepthMask;
     interface->fDisable = noOpGLDisable;
+    interface->fDisableClientState = noOpGLDisableClientState;
     interface->fDisableVertexAttribArray = noOpGLDisableVertexAttribArray;
     interface->fDrawArrays = noOpGLDrawArrays;
     interface->fDrawBuffer = noOpGLDrawBuffer;
     interface->fDrawBuffers = noOpGLDrawBuffers;
     interface->fDrawElements = noOpGLDrawElements;
     interface->fEnable = noOpGLEnable;
+    interface->fEnableClientState = noOpGLEnableClientState;
     interface->fEnableVertexAttribArray = noOpGLEnableVertexAttribArray;
     interface->fEndQuery = noOpGLEndQuery;
     interface->fFinish = noOpGLFinish;
     interface->fFlush = noOpGLFlush;
     interface->fFrontFace = noOpGLFrontFace;
+    interface->fGenerateMipmap = debugGLGenerateMipmap;
     interface->fGenBuffers = debugGLGenBuffers;
     interface->fGenQueries = noOpGLGenIds;
     interface->fGenTextures = debugGLGenTextures;
@@ -839,8 +858,11 @@ const GrGLInterface* GrGLCreateDebugInterface() {
     interface->fGetTexLevelParameteriv = noOpGLGetTexLevelParameteriv;
     interface->fGetUniformLocation = noOpGLGetUniformLocation;
     interface->fGenVertexArrays = debugGLGenVertexArrays;
+    interface->fLoadIdentity = noOpGLLoadIdentity;
+    interface->fLoadMatrixf = noOpGLLoadMatrixf;
     interface->fLineWidth = noOpGLLineWidth;
     interface->fLinkProgram = noOpGLLinkProgram;
+    interface->fMatrixMode = noOpGLMatrixMode;
     interface->fPixelStorei = debugGLPixelStorei;
     interface->fQueryCounter = noOpGLQueryCounter;
     interface->fReadBuffer = noOpGLReadBuffer;
@@ -853,11 +875,15 @@ const GrGLInterface* GrGLCreateDebugInterface() {
     interface->fStencilMaskSeparate = noOpGLStencilMaskSeparate;
     interface->fStencilOp = noOpGLStencilOp;
     interface->fStencilOpSeparate = noOpGLStencilOpSeparate;
+    interface->fTexGenf = noOpGLTexGenf;
+    interface->fTexGenfv = noOpGLTexGenfv;
+    interface->fTexGeni = noOpGLTexGeni;
     interface->fTexImage2D = noOpGLTexImage2D;
     interface->fTexParameteri = noOpGLTexParameteri;
     interface->fTexParameteriv = noOpGLTexParameteriv;
     interface->fTexSubImage2D = noOpGLTexSubImage2D;
     interface->fTexStorage2D = noOpGLTexStorage2D;
+    interface->fDiscardFramebuffer = noOpGLDiscardFramebuffer;
     interface->fUniform1f = noOpGLUniform1f;
     interface->fUniform1i = noOpGLUniform1i;
     interface->fUniform1fv = noOpGLUniform1fv;
@@ -880,6 +906,7 @@ const GrGLInterface* GrGLCreateDebugInterface() {
     interface->fUseProgram = debugGLUseProgram;
     interface->fVertexAttrib4fv = noOpGLVertexAttrib4fv;
     interface->fVertexAttribPointer = noOpGLVertexAttribPointer;
+    interface->fVertexPointer = noOpGLVertexPointer;
     interface->fViewport = noOpGLViewport;
     interface->fBindFramebuffer = debugGLBindFramebuffer;
     interface->fBindRenderbuffer = debugGLBindRenderbuffer;

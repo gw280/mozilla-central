@@ -25,7 +25,7 @@ class SkPath;
 //      use growToInclude to fit skp round rects & generate stats (RRs vs. real paths)
 //      check on # of rectorus's the RRs could handle
 //   rendering work
-//      add entry points (clipRRect, drawRRect) - plumb down to SkDevice
+//      add entry points (clipRRect, drawRRect) - plumb down to SkBaseDevice
 //      update SkPath.addRRect() to take an SkRRect - only use quads
 //          -- alternatively add addRRectToPath here
 //      add GM and bench
@@ -251,6 +251,12 @@ public:
         this->inset(-dx, -dy, this);
     }
 
+    /**
+     *  Returns true if 'rect' is wholy inside the RR, and both
+     *  are not empty.
+     */
+    bool contains(const SkRect& rect) const;
+
     SkDEBUGCODE(void validate() const;)
 
     enum {
@@ -280,6 +286,7 @@ private:
     // uninitialized data
 
     void computeType() const;
+    bool checkCornerContainment(SkScalar x, SkScalar y) const;
 
     // to access fRadii directly
     friend class SkPath;

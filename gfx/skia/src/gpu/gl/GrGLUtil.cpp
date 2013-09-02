@@ -48,6 +48,37 @@ void GrGLCheckErr(const GrGLInterface* gl,
     }
 }
 
+namespace {
+// Mesa uses a non-standard version string of format: 1.4 Mesa <mesa_major>.<mesa_minor>.
+// The mapping of from mesa version to GL version came from here: http://www.mesa3d.org/intro.html
+bool get_gl_version_for_mesa(int mesaMajorVersion, int* major, int* minor) {
+    switch (mesaMajorVersion) {
+        case 2:
+        case 3:
+        case 4:
+        case 5:
+        case 6:
+            *major = 1;
+            *minor = mesaMajorVersion - 1;
+            return true;
+        case 7:
+            *major = 2;
+            *minor = 1;
+            return true;
+        case 8:
+            *major = 3;
+            *minor = 0;
+            return true;
+        case 9:
+            *major = 3;
+            *minor = 1;
+            return true;
+        default:
+            return false;
+    }
+}
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 
 #if GR_GL_LOG_CALLS
@@ -62,7 +93,7 @@ void GrGLCheckErr(const GrGLInterface* gl,
 
 GrGLBinding GrGLGetBindingInUseFromString(const char* versionString) {
     if (NULL == versionString) {
-        GrAssert(!"NULL GL version string.");
+        SkDEBUGFAIL("NULL GL version string.");
         return kNone_GrGLBinding;
     }
 
@@ -76,8 +107,7 @@ GrGLBinding GrGLGetBindingInUseFromString(const char* versionString) {
 
     // check for ES 1
     char profile[2];
-    n = sscanf(versionString, "OpenGL ES-%c%c %d.%d", profile, profile+1,
-               &major, &minor);
+    n = sscanf(versionString, "OpenGL ES-%c%c %d.%d", profile, profile+1, &major, &minor);
     if (4 == n) {
         // we no longer support ES1.
         return kNone_GrGLBinding;
@@ -86,20 +116,37 @@ GrGLBinding GrGLGetBindingInUseFromString(const char* versionString) {
     // check for ES2
     n = sscanf(versionString, "OpenGL ES %d.%d", &major, &minor);
     if (2 == n) {
-        return kES2_GrGLBinding;
+        return kES_GrGLBinding;
     }
     return kNone_GrGLBinding;
 }
 
+bool GrGLIsMesaFromVersionString(const char* versionString) {
+    int major, minor, mesaMajor, mesaMinor;
+    int n = sscanf(versionString, "%d.%d Mesa %d.%d", &major, &minor, &mesaMajor, &mesaMinor);
+    return 4 == n;
+}
+
 GrGLVersion GrGLGetVersionFromString(const char* versionString) {
     if (NULL == versionString) {
-        GrAssert(!"NULL GL version string.");
+        SkDEBUGFAIL("NULL GL version string.");
         return 0;
     }
 
     int major, minor;
 
-    int n = sscanf(versionString, "%d.%d", &major, &minor);
+    // check for mesa
+    int mesaMajor, mesaMinor;
+    int n = sscanf(versionString, "%d.%d Mesa %d.%d", &major, &minor, &mesaMajor, &mesaMinor);
+    if (4 == n) {
+        if (get_gl_version_for_mesa(mesaMajor, &major, &minor)) {
+            return GR_GL_VER(major, minor);
+        } else {
+            return 0;
+        }
+    }
+
+    n = sscanf(versionString, "%d.%d", &major, &minor);
     if (2 == n) {
         return GR_GL_VER(major, minor);
     }
@@ -121,7 +168,7 @@ GrGLVersion GrGLGetVersionFromString(const char* versionString) {
 
 GrGLSLVersion GrGLGetGLSLVersionFromString(const char* versionString) {
     if (NULL == versionString) {
-        GrAssert(!"NULL GLSL version string.");
+        SkDEBUGFAIL("NULL GLSL version string.");
         return 0;
     }
 
@@ -158,6 +205,9 @@ GrGLVendor GrGLGetVendorFromString(const char* vendorString) {
         }
         if (0 == strcmp(vendorString, "Intel")) {
             return kIntel_GrGLVendor;
+        }
+        if (0 == strcmp(vendorString, "Qualcomm")) {
+            return kQualcomm_GrGLVendor;
         }
     }
     return kOther_GrGLVendor;

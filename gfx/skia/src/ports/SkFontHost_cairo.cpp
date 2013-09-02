@@ -108,7 +108,42 @@ public:
         SkDEBUGCODE(SkDebugf("SkCairoFTTypeface::onGetFontDescriptor unimplemented\n"));
     }
 
+    virtual int onCountGlyphs() const SK_OVERRIDE
+    {
+        SkDEBUGCODE(SkDebugf("SkCairoFTTypeface::onCountGlyphs unimplemented\n"));
+        return 0;
+    }
 
+    virtual int onGetUPEM() const SK_OVERRIDE
+    {
+        SkDEBUGCODE(SkDebugf("SkCairoFTTypeface::onGetUPEM unimplemented\n"));
+        return 0;
+    }
+
+    virtual int onGetTableTags(SkFontTableTag tags[]) const SK_OVERRIDE
+    {
+        SkDEBUGCODE(SkDebugf("SkCairoFTTypeface::onGetTableTags unimplemented\n"));
+        return 0;
+    }
+
+    virtual size_t onGetTableData(SkFontTableTag, size_t offset,
+                               size_t length, void* data) const SK_OVERRIDE
+    {
+        SkDEBUGCODE(SkDebugf("SkCairoFTTypeface::onGetTableData unimplemented\n"));
+        return 0;
+    }
+
+    virtual SkTypeface* onRefMatchingStyle(Style styleBits) const SK_OVERRIDE
+    {
+        SkDEBUGCODE(SkDebugf("SkCairoFTTypeface::onRefMatchingStyle unimplemented\n"));
+        return NULL;
+    }
+
+    virtual LocalizedStrings* onCreateFamilyNameIterator() const SK_OVERRIDE
+    {
+        SkDEBUGCODE(SkDebugf("SkCairoFTTypeface::onCreateFamilyNameIterator unimplemented\n"));
+        return NULL;
+    }
 private:
 
     SkCairoFTTypeface(cairo_font_face_t* fontFace, SkTypeface::Style style, SkFontID id, bool isFixedWidth)
@@ -354,7 +389,8 @@ SkUnichar SkScalerContext_CairoFT::generateGlyphToChar(uint16_t glyph)
 
 #ifdef SK_BUILD_FOR_ANDROID
 SkTypeface* SkAndroidNextLogicalTypeface(SkFontID currFontID,
-                                         SkFontID origFontID) {
+                                         SkFontID origFontID,
+                                         SkPaintOptionsAndroid const&) {
     return NULL;
 }
 #endif

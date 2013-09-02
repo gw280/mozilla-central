@@ -37,9 +37,34 @@ static inline void sk_memset32_dither(uint32_t dst[], uint32_t v0, uint32_t v1,
     }
 }
 
-SkFixed clamp_tileproc(SkFixed x);
-SkFixed repeat_tileproc(SkFixed x);
-SkFixed mirror_tileproc(SkFixed x);
+//  Clamp
+
+static inline SkFixed clamp_tileproc(SkFixed x) {
+    return SkClampMax(x, 0xFFFF);
+}
+
+// Repeat
+
+static inline SkFixed repeat_tileproc(SkFixed x) {
+    return x & 0xFFFF;
+}
+
+// Mirror
+
+// Visual Studio 2010 (MSC_VER=1600) optimizes bit-shift code incorrectly.
+// See http://code.google.com/p/skia/issues/detail?id=472
+#if defined(_MSC_VER) && (_MSC_VER >= 1600)
+#pragma optimize("", off)
+#endif
+
+static inline SkFixed mirror_tileproc(SkFixed x) {
+    int s = x << 15 >> 31;
+    return (x ^ s) & 0xFFFF;
+}
+
+#if defined(_MSC_VER) && (_MSC_VER >= 1600)
+#pragma optimize("", on)
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -57,8 +82,22 @@ static const TileProc gTileProcs[] = {
 
 class SkGradientShaderBase : public SkShader {
 public:
-    SkGradientShaderBase(const SkColor colors[], const SkScalar pos[],
-                int colorCount, SkShader::TileMode mode, SkUnitMapper* mapper);
+    struct Descriptor {
+        Descriptor() {
+            sk_bzero(this, sizeof(*this));
+            fTileMode = SkShader::kClamp_TileMode;
+        }
+
+        const SkColor*      fColors;
+        const SkScalar*     fPos;
+        int                 fCount;
+        SkShader::TileMode  fTileMode;
+        SkUnitMapper*       fMapper;
+        uint32_t            fFlags;
+    };
+
+public:
+    SkGradientShaderBase(const Descriptor& desc);
     virtual ~SkGradientShaderBase();
 
     virtual bool setContext(const SkBitmap&, const SkPaint&, const SkMatrix&) SK_OVERRIDE;
@@ -86,9 +125,6 @@ public:
         /// if dithering is disabled.
         kDitherStride32 = kCache32Count,
         kDitherStride16 = kCache16Count,
-
-        kCache32ClampLower = -1,
-        kCache32ClampUpper = kCache32Count * 4
     };
 
 
@@ -106,6 +142,7 @@ protected:
     int         fColorCount;
     uint8_t     fDstToIndexClass;
     uint8_t     fFlags;
+    uint8_t     fGradFlags;
 
     struct Rec {
         SkFixed     fPos;   // 0...1
@@ -137,7 +174,7 @@ private:
 
     static void Build16bitCache(uint16_t[], SkColor c0, SkColor c1, int count);
     static void Build32bitCache(SkPMColor[], SkColor c0, SkColor c1, int count,
-                                U8CPU alpha);
+                                U8CPU alpha, uint32_t gradFlags);
     void setCacheAlpha(U8CPU alpha) const;
     void initCommon();
 
@@ -280,8 +317,8 @@ protected:
      */
     void setupMatrix(GrGLShaderBuilder* builder,
                      EffectKey key,
-                     const char** fsCoordName,
-                     const char** vsVaryingName = NULL,
+                     SkString* fsCoordName,
+                     SkString* vsVaryingName = NULL,
                      GrSLType* vsVaryingType = NULL);
 
     // Emits the uniform used as the y-coord to texture samples in derived classes. Subclasses

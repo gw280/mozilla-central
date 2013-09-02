@@ -11,63 +11,13 @@
 
 #include "SkTypeface.h"
 
-enum FallbackScripts {
-    kArabic_FallbackScript,
-    kArmenian_FallbackScript,
-    kBengali_FallbackScript,
-    kDevanagari_FallbackScript,
-    kEthiopic_FallbackScript,
-    kGeorgian_FallbackScript,
-    kHebrewRegular_FallbackScript,
-    kHebrewBold_FallbackScript,
-    kKannada_FallbackScript,
-    kMalayalam_FallbackScript,
-    kTamilRegular_FallbackScript,
-    kTamilBold_FallbackScript,
-    kThai_FallbackScript,
-    kTelugu_FallbackScript,
-    kFallbackScriptNumber
-};
+#ifdef SK_BUILD_FOR_ANDROID
 
-// This particular mapping will be removed after WebKit is updated to use the
-// new mappings. No new caller should use the kTamil_FallbackScript but rather
-// the more specific Tamil scripts in the standard enum.
-#define kTamil_FallbackScript kTamilRegular_FallbackScript
-
-#define SkTypeface_ValidScript(s) (s >= 0 && s < kFallbackScriptNumber)
-
-/**
- *  Return a new typeface for a fallback script. If the script is
- *  not valid, or can not map to a font, returns null.
- *  @param  script  The script id.
- *  @return reference to the matching typeface. Caller must call
- *          unref() when they are done.
- */
-SK_API SkTypeface* SkCreateTypefaceForScript(FallbackScripts script);
-
-/**
- *  Return the string representation for the fallback script on Android.
- *  If the script is not valid, returns null.
- */
-SK_API const char* SkGetFallbackScriptID(FallbackScripts script);
-
-/**
- *  Return the fallback script enum for the ID on Android.
- *  If the ID is not valid, or can not map to a fallback
- *  script, returns kFallbackScriptNumber.
- */
-SK_API FallbackScripts SkGetFallbackScriptFromID(const char* id);
-
-/**
- *  Return a new typeface of the font in the fallback font list containing
- *  the specified chararacter. If no typeface is found, returns null.
- */
-SK_API SkTypeface* SkCreateFallbackTypefaceForChar(SkUnichar uni,
-                                                   SkTypeface::Style style);
+class SkPaintOptionsAndroid;
 
 /**
  *  Get the family name of the font in the fallback font list containing
- *  the specified chararacter. if no font is found, returns false.
+ *  the specified character. if no font is found, returns false.
  */
 SK_API bool SkGetFallbackFamilyNameForChar(SkUnichar uni, SkString* name);
 
@@ -93,6 +43,30 @@ SK_API void SkUseTestFontConfigFile(const char* mainconf, const char* fallbackco
  *  get the 3rd can still inspect the original, and try to match its
  *  stylistic attributes.
  */
-SkTypeface* SkAndroidNextLogicalTypeface(SkFontID currFontID, SkFontID origFontID);
+SkTypeface* SkAndroidNextLogicalTypeface(SkFontID currFontID, SkFontID origFontID,
+                                         const SkPaintOptionsAndroid& options);
 
-#endif
+#endif // #ifdef SK_BUILD_FOR_ANDROID
+#ifdef SK_BUILD_FOR_ANDROID_FRAMEWORK
+
+#include "SkPaintOptionsAndroid.h"
+#include "../harfbuzz/src/harfbuzz-shaper.h"
+#include "../harfbuzz_ng/src/hb.h"
+
+/**
+ *  Return a new typeface for a fallback script. If the script is
+ *  not valid, or can not map to a font, returns null.
+ *  @param  script   The harfbuzz script id.
+ *  @param  style    The font style, for example bold
+ *  @param  elegant  true if we want the web friendly elegant version of the font
+ *  @return          reference to the matching typeface. Caller must call
+ *                   unref() when they are done.
+ */
+SK_API SkTypeface* SkCreateTypefaceForScriptNG(hb_script_t script, SkTypeface::Style style,
+        SkPaintOptionsAndroid::FontVariant fontVariant = SkPaintOptionsAndroid::kDefault_Variant);
+
+SK_API SkTypeface* SkCreateTypefaceForScript(HB_Script script, SkTypeface::Style style,
+        SkPaintOptionsAndroid::FontVariant fontVariant = SkPaintOptionsAndroid::kDefault_Variant);
+
+#endif // #ifdef SK_BUILD_FOR_ANDROID_FRAMEWORK
+#endif // #ifndef SkTypeface_android_DEFINED

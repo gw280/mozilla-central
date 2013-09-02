@@ -220,10 +220,11 @@ void SkNWayCanvas::drawBitmap(const SkBitmap& bitmap, SkScalar x, SkScalar y,
 }
 
 void SkNWayCanvas::drawBitmapRectToRect(const SkBitmap& bitmap, const SkRect* src,
-                                  const SkRect& dst, const SkPaint* paint) {
+                                  const SkRect& dst, const SkPaint* paint,
+                                  DrawBitmapRectFlags flags) {
     Iter iter(fList);
     while (iter.next()) {
-        iter->drawBitmapRectToRect(bitmap, src, dst, paint);
+        iter->drawBitmapRectToRect(bitmap, src, dst, paint, flags);
     }
 }
 
@@ -310,4 +311,25 @@ SkDrawFilter* SkNWayCanvas::setDrawFilter(SkDrawFilter* filter) {
         iter->setDrawFilter(filter);
     }
     return this->INHERITED::setDrawFilter(filter);
+}
+
+void SkNWayCanvas::beginCommentGroup(const char* description) {
+    Iter iter(fList);
+    while (iter.next()) {
+        iter->beginCommentGroup(description);
+    }
+}
+
+void SkNWayCanvas::addComment(const char* kywd, const char* value) {
+    Iter iter(fList);
+    while (iter.next()) {
+        iter->addComment(kywd, value);
+    }
+}
+
+void SkNWayCanvas::endCommentGroup() {
+    Iter iter(fList);
+    while (iter.next()) {
+        iter->endCommentGroup();
+    }
 }

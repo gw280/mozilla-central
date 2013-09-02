@@ -31,26 +31,29 @@ public:
                           const char* inputColor,
                           const TextureSamplerArray& samplers) SK_OVERRIDE {
         const GrSimpleTextureEffect& ste = drawEffect.castEffect<GrSimpleTextureEffect>();
-        const char* fsCoordName;
+        SkString fsCoordName;
         GrSLType fsCoordSLType;
         if (GrEffect::kCustom_CoordsType == ste.coordsType()) {
-            GrAssert(ste.getMatrix().isIdentity());
-            GrAssert(1 == ste.numVertexAttribs());
+            SkASSERT(ste.getMatrix().isIdentity());
+            SkASSERT(1 == ste.numVertexAttribs());
             fsCoordSLType = kVec2f_GrSLType;
             const char* vsVaryingName;
-            builder->addVarying(kVec2f_GrSLType, "textureCoords", &vsVaryingName, &fsCoordName);
+            const char* fsVaryingNamePtr;
+            GrGLShaderBuilder::VertexBuilder* vertexBuilder = builder->getVertexBuilder();
+            SkASSERT(NULL != vertexBuilder);
+            vertexBuilder->addVarying(kVec2f_GrSLType, "textureCoords", &vsVaryingName, &fsVaryingNamePtr);
+            fsCoordName = fsVaryingNamePtr;
             const char* attrName =
-                builder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0])->c_str();
-            builder->vsCodeAppendf("\t%s = %s;", vsVaryingName, attrName);
+                vertexBuilder->getEffectAttributeName(drawEffect.getVertexAttribIndices()[0])->c_str();
+            vertexBuilder->vsCodeAppendf("\t%s = %s;\n", vsVaryingName, attrName);
         } else {
             fsCoordSLType = fEffectMatrix.get()->emitCode(builder, key, &fsCoordName);
         }
         builder->fsCodeAppendf("\t%s = ", outputColor);
-        builder->appendTextureLookupAndModulate(GrGLShaderBuilder::kFragment_ShaderType,
-                                                inputColor,
-                                                samplers[0],
-                                                fsCoordName,
-                                                fsCoordSLType);
+        builder->fsAppendTextureLookupAndModulate(inputColor,
+                                                  samplers[0],
+                                                  fsCoordName.c_str(),
+                                                  fsCoordSLType);
         builder->fsCodeAppend(";\n");
     }
 
@@ -70,7 +73,7 @@ public:
                          const GrDrawEffect& drawEffect) SK_OVERRIDE {
         const GrSimpleTextureEffect& ste = drawEffect.castEffect<GrSimpleTextureEffect>();
         if (GrEffect::kCustom_CoordsType == ste.coordsType()) {
-            GrAssert(ste.getMatrix().isIdentity());
+            SkASSERT(ste.getMatrix().isIdentity());
         } else {
             fEffectMatrix.get()->setData(uman, ste.getMatrix(), drawEffect, ste.texture(0));
         }
@@ -110,7 +113,8 @@ GrEffectRef* GrSimpleTextureEffect::TestCreate(SkMWCRandom* random,
         kTileModes[random->nextULessThan(SK_ARRAY_COUNT(kTileModes))],
         kTileModes[random->nextULessThan(SK_ARRAY_COUNT(kTileModes))],
     };
-    GrTextureParams params(tileModes, random->nextBool());
+    GrTextureParams params(tileModes, random->nextBool() ? GrTextureParams::kBilerp_FilterMode :
+                                                           GrTextureParams::kNone_FilterMode);
 
     static const CoordsType kCoordsTypes[] = {
         kLocal_CoordsType,

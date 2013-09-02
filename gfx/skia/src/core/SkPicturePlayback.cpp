@@ -508,21 +508,26 @@ void SkPicturePlayback::parseStreamTag(SkStream* stream, const SkPictInfo& info,
             SkASSERT(!haveBuffer);
             fTFPlayback.setCount(size);
             for (size_t i = 0; i < size; i++) {
-                SkSafeUnref(fTFPlayback.set(i, SkTypeface::Deserialize(stream)));
+                SkAutoTUnref<SkTypeface> tf(SkTypeface::Deserialize(stream));
+                if (!tf.get()) {    // failed to deserialize
+                    // fTFPlayback asserts it never has a null, so we plop in
+                    // the default here.
+                    tf.reset(SkTypeface::RefDefault());
+                }
+                fTFPlayback.set(i, tf);
             }
         } break;
         case PICT_PICTURE_TAG: {
             fPictureCount = size;
             fPictureRefs = SkNEW_ARRAY(SkPicture*, fPictureCount);
-            bool success;
             for (int i = 0; i < fPictureCount; i++) {
-                fPictureRefs[i] = SkNEW_ARGS(SkPicture, (stream, &success, proc));
-                // Success can only be false if PICTURE_VERSION does not match
+                fPictureRefs[i] = SkPicture::CreateFromStream(stream, proc);
+                // CreateFromStream can only fail if PICTURE_VERSION does not match
                 // (which should never happen from here, since a sub picture will
                 // have the same PICTURE_VERSION as its parent) or if stream->read
                 // returns 0. In the latter case, we have a bug when writing the
                 // picture to begin with, which will be alerted to here.
-                SkASSERT(success);
+                SkASSERT(fPictureRefs[i] != NULL);
             }
         } break;
         case PICT_BUFFER_SIZE_TAG: {
@@ -619,11 +624,11 @@ struct SkipClipRec {
 #endif
 
 #ifdef SK_DEVELOPER
-size_t SkPicturePlayback::preDraw(size_t offset, int type) {
-    return 0;
+bool SkPicturePlayback::preDraw(int opIndex, int type) {
+    return false;
 }
 
-void SkPicturePlayback::postDraw(size_t offset) {
+void SkPicturePlayback::postDraw(int opIndex) {
 }
 #endif
 
@@ -650,7 +655,7 @@ static DrawType read_op_and_size(SkReader32* reader, uint32_t* size) {
     return (DrawType) op;
 }
 
-void SkPicturePlayback::draw(SkCanvas& canvas) {
+void SkPicturePlayback::draw(SkCanvas& canvas, SkDrawPictureCallback* callback) {
 #ifdef ENABLE_TIME_DRAW
     SkAutoTime  at("SkPicture::draw", 50);
 #endif
@@ -700,12 +705,21 @@ void SkPicturePlayback::draw(SkCanvas& canvas) {
 
     // Record this, so we can concat w/ it if we encounter a setMatrix()
     SkMatrix initialMatrix = canvas.getTotalMatrix();
+    int originalSaveCount = canvas.getSaveCount();
 
 #ifdef SK_BUILD_FOR_ANDROID
     fAbortCurrentPlayback = false;
 #endif
 
+#ifdef SK_DEVELOPER
+    int opIndex = -1;
+#endif
+
     while (!reader.eof()) {
+        if (callback && callback->abortDrawing()) {
+            canvas.restoreToCount(originalSaveCount);
+            return;
+        }
 #ifdef SK_BUILD_FOR_ANDROID
         if (fAbortCurrentPlayback) {
             return;
@@ -716,14 +730,16 @@ void SkPicturePlayback::draw(SkCanvas& canvas) {
         uint32_t size;
         DrawType op = read_op_and_size(&reader, &size);
         size_t skipTo = 0;
-#ifdef SK_DEVELOPER
-        // TODO: once chunk sizes are in all .skps just use
-        // "curOffset + size"
-        skipTo = this->preDraw(curOffset, op);
-#endif
-        if (0 == skipTo && NOOP == op) {
+        if (NOOP == op) {
             // NOOPs are to be ignored - do not propagate them any further
             skipTo = curOffset + size;
+#ifdef SK_DEVELOPER
+        } else {
+            opIndex++;
+            if (this->preDraw(opIndex, op)) {
+                skipTo = curOffset + size;
+            }
+#endif
         }
 
         if (0 != skipTo) {
@@ -818,7 +834,20 @@ void SkPicturePlayback::draw(SkCanvas& canvas) {
                 const SkBitmap& bitmap = getBitmap(reader);
                 const SkRect* src = this->getRectPtr(reader);   // may be null
                 const SkRect& dst = reader.skipT<SkRect>();     // required
-                canvas.drawBitmapRectToRect(bitmap, src, dst, paint);
+                SkCanvas::DrawBitmapRectFlags flags;
+#ifndef DELETE_THIS_CODE_WHEN_SKPS_ARE_REBUILT_AT_V13_AND_ALL_OTHER_INSTANCES_TOO
+                flags = SkCanvas::kNone_DrawBitmapRectFlag;
+                // TODO: remove this backwards compatibility code once the .skps are
+                // regenerated
+                SkASSERT(32 == size || 48 == size ||    // old sizes
+                         36 == size || 52 == size);     // new sizes
+                if (36 == size || 52 == size) {
+#endif
+                    flags = (SkCanvas::DrawBitmapRectFlags) reader.readInt();
+#ifndef DELETE_THIS_CODE_WHEN_SKPS_ARE_REBUILT_AT_V13_AND_ALL_OTHER_INSTANCES_TOO
+                }
+#endif
+                canvas.drawBitmapRectToRect(bitmap, src, dst, paint, flags);
             } break;
             case DRAW_BITMAP_MATRIX: {
                 const SkPaint* paint = getPaint(reader);
@@ -840,6 +869,18 @@ void SkPicturePlayback::draw(SkCanvas& canvas) {
                 size_t length = reader.readInt();
                 canvas.drawData(reader.skip(length), length);
                 // skip handles padding the read out to a multiple of 4
+            } break;
+            case BEGIN_COMMENT_GROUP: {
+                const char* desc = reader.readString();
+                canvas.beginCommentGroup(desc);
+            } break;
+            case COMMENT: {
+                const char* kywd = reader.readString();
+                const char* value = reader.readString();
+                canvas.addComment(kywd, value);
+            } break;
+            case END_COMMENT_GROUP: {
+                canvas.endCommentGroup();
             } break;
             case DRAW_OVAL: {
                 const SkPaint& paint = *getPaint(reader);
@@ -1012,7 +1053,7 @@ void SkPicturePlayback::draw(SkCanvas& canvas) {
         }
 
 #ifdef SK_DEVELOPER
-        this->postDraw(curOffset);
+        this->postDraw(opIndex);
 #endif
 
         if (it.isValid()) {

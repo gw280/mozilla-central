@@ -8,12 +8,15 @@
 
 #include "SkSweepGradient.h"
 
-SkSweepGradient::SkSweepGradient(SkScalar cx, SkScalar cy, const SkColor colors[],
-               const SkScalar pos[], int count, SkUnitMapper* mapper)
-: SkGradientShaderBase(colors, pos, count, SkShader::kClamp_TileMode, mapper),
-  fCenter(SkPoint::Make(cx, cy))
+SkSweepGradient::SkSweepGradient(SkScalar cx, SkScalar cy,
+                                 const Descriptor& desc)
+    : SkGradientShaderBase(desc)
+    , fCenter(SkPoint::Make(cx, cy))
 {
     fPtsToUnit.setTranslate(-cx, -cy);
+
+    // overwrite the tilemode to a canonical value (since sweep ignores it)
+    fTileMode = SkShader::kClamp_TileMode;
 }
 
 SkShader::BitmapType SkSweepGradient::asABitmap(SkBitmap* bitmap,
@@ -470,10 +473,10 @@ void GrGLSweepGradient::emitCode(GrGLShaderBuilder* builder,
                                  const char* inputColor,
                                  const TextureSamplerArray& samplers) {
     this->emitYCoordUniform(builder);
-    const char* coords;
+    SkString coords;
     this->setupMatrix(builder, key, &coords);
     SkString t;
-    t.printf("atan(- %s.y, - %s.x) * 0.1591549430918 + 0.5", coords, coords);
+    t.printf("atan(- %s.y, - %s.x) * 0.1591549430918 + 0.5", coords.c_str(), coords.c_str());
     this->emitColorLookup(builder, t.c_str(), outputColor, inputColor, samplers[0]);
 }
 

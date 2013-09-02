@@ -25,8 +25,8 @@
 #include "SkRegion.h"
 #include "SkClipStack.h"
 
-#if (GR_DEBUG && defined(SK_RELEASE)) || (GR_RELEASE && defined(SK_DEBUG))
-//    #error "inconsistent GR_DEBUG and SK_DEBUG"
+#if (GR_RELEASE && defined(SK_DEBUG))
+//    #error "inconsistent GR_RELEASE and SK_DEBUG"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -44,15 +44,6 @@ GR_STATIC_ASSERT((int)kDA_GrBlendCoeff   == (int)SkXfermode::kDA_Coeff);
 GR_STATIC_ASSERT((int)kIDA_GrBlendCoeff  == (int)SkXfermode::kIDA_Coeff);
 
 #define sk_blend_to_grblend(X) ((GrBlendCoeff)(X))
-
-GR_STATIC_ASSERT((int)SkPath::kMove_Verb  == (int)kMove_PathCmd);
-GR_STATIC_ASSERT((int)SkPath::kLine_Verb  == (int)kLine_PathCmd);
-GR_STATIC_ASSERT((int)SkPath::kQuad_Verb  == (int)kQuadratic_PathCmd);
-GR_STATIC_ASSERT((int)SkPath::kCubic_Verb == (int)kCubic_PathCmd);
-GR_STATIC_ASSERT((int)SkPath::kClose_Verb == (int)kClose_PathCmd);
-GR_STATIC_ASSERT((int)SkPath::kDone_Verb  == (int)kEnd_PathCmd);
-
-#define sk_path_verb_to_gr_path_command(X) ((GrPathCmd)(X))
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -94,7 +85,7 @@ public:
     // overrides
     virtual const GrKey* getKey();
     virtual GrMaskFormat getMaskFormat();
-    virtual bool getPackedGlyphBounds(GrGlyph::PackedID, GrIRect* bounds);
+    virtual bool getPackedGlyphBounds(GrGlyph::PackedID, SkIRect* bounds);
     virtual bool getPackedGlyphImage(GrGlyph::PackedID, int width, int height,
                                      int rowBytes, void* image);
     virtual bool getGlyphPath(uint16_t glyphID, SkPath*);

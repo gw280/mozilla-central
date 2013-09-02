@@ -54,7 +54,7 @@ SkBitmap::Config SkImageInfoToBitmapConfig(const SkImage::Info& info,
             }
             break;
     }
-    SkASSERT(!"how did we get here");
+    SkDEBUGFAIL("how did we get here");
     return SkBitmap::kNo_Config;
 }
 
@@ -136,6 +136,36 @@ void SkImagePrivDrawPicture(SkCanvas* canvas, SkPicture* picture,
     } else if (x || y) {
         canvas->save();
         canvas->translate(x, y);
+    }
+
+    canvas->drawPicture(*picture);
+    canvas->restoreToCount(saveCount);
+}
+
+void SkImagePrivDrawPicture(SkCanvas* canvas, SkPicture* picture,
+                            const SkRect* src,  const SkRect& dst, const SkPaint* paint) {
+    int saveCount = canvas->getSaveCount();
+
+    SkMatrix matrix;
+    SkRect   tmpSrc;
+
+    if (NULL != src) {
+        tmpSrc = *src;
+    } else {
+        tmpSrc.set(0, 0,
+                   SkIntToScalar(picture->width()),
+                   SkIntToScalar(picture->height()));
+    }
+
+    matrix.setRectToRect(tmpSrc, dst, SkMatrix::kFill_ScaleToFit);
+    if (paint && needs_layer(*paint)) {
+        canvas->saveLayer(&dst, paint);
+    } else {
+        canvas->save();
+    }
+    canvas->concat(matrix);
+    if (!paint || !needs_layer(*paint)) {
+        canvas->clipRect(tmpSrc);
     }
 
     canvas->drawPicture(*picture);

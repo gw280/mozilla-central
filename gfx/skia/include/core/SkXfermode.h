@@ -15,6 +15,7 @@
 
 class GrContext;
 class GrEffectRef;
+class GrTexture;
 class SkString;
 
 /** \class SkXfermode
@@ -35,8 +36,6 @@ public:
                         const SkAlpha aa[]) const;
     virtual void xfer16(uint16_t dst[], const SkPMColor src[], int count,
                         const SkAlpha aa[]) const;
-    virtual void xfer4444(uint16_t dst[], const SkPMColor src[], int count,
-                          const SkAlpha aa[]) const;
     virtual void xferA8(SkAlpha dst[], const SkPMColor src[], int count,
                         const SkAlpha aa[]) const;
 
@@ -87,6 +86,9 @@ public:
         [a, c] - Resulting (alpha, color) values
         For these equations, the colors are in premultiplied state.
         If no xfermode is specified, kSrcOver is assumed.
+        The modes are ordered by those that can be expressed as a pair of Coeffs, followed by those
+        that aren't Coeffs but have separable r,g,b computations, and finally
+        those that are not separable.
      */
     enum Mode {
         kClear_Mode,    //!< [0, 0]
@@ -104,12 +106,11 @@ public:
         kPlus_Mode,     //!< [Sa + Da, Sc + Dc]
         kModulate_Mode, // multiplies all components (= alpha and color)
 
-        // all above modes can be expressed as pair of src/dst Coeffs
-        kCoeffModesCnt,
-
         // Following blend modes are defined in the CSS Compositing standard:
         // https://dvcs.w3.org/hg/FXTF/rawfile/tip/compositing/index.html#blending
-        kScreen_Mode = kCoeffModesCnt,
+        kScreen_Mode,
+        kLastCoeffMode = kScreen_Mode,
+
         kOverlay_Mode,
         kDarken_Mode,
         kLighten_Mode,
@@ -120,12 +121,12 @@ public:
         kDifference_Mode,
         kExclusion_Mode,
         kMultiply_Mode,
+        kLastSeparableMode = kMultiply_Mode,
 
         kHue_Mode,
         kSaturation_Mode,
         kColor_Mode,
         kLuminosity_Mode,
-
         kLastMode = kLuminosity_Mode
     };
 
@@ -195,12 +196,16 @@ public:
         it and own a ref to it. Since the xfermode may or may not assign *effect, the caller should
         set *effect to NULL beforehand. If the function returns true and *effect is NULL then the
         src and dst coeffs will be applied to the draw. When *effect is non-NULL the coeffs are
-        ignored.
+        ignored. background specifies the texture to use as the background for compositing, and
+        should be accessed in the effect's fragment shader. If NULL, the effect should request
+        access to destination color (setWillReadDstColor()), and use that in the fragment shader
+        (builder->dstColor()).
      */
     virtual bool asNewEffectOrCoeff(GrContext*,
                                     GrEffectRef** effect,
                                     Coeff* src,
-                                    Coeff* dst) const;
+                                    Coeff* dst,
+                                    GrTexture* background = NULL) const;
 
     /**
      *  The same as calling xfermode->asNewEffect(...), except that this also checks if the xfermode
@@ -210,7 +215,8 @@ public:
                                    GrContext*,
                                    GrEffectRef** effect,
                                    Coeff* src,
-                                   Coeff* dst);
+                                   Coeff* dst,
+                                   GrTexture* background = NULL);
 
     SkDEVCODE(virtual void toString(SkString* str) const = 0;)
     SK_DECLARE_FLATTENABLE_REGISTRAR_GROUP()
@@ -250,8 +256,6 @@ public:
                         const SkAlpha aa[]) const SK_OVERRIDE;
     virtual void xfer16(uint16_t dst[], const SkPMColor src[], int count,
                         const SkAlpha aa[]) const SK_OVERRIDE;
-    virtual void xfer4444(uint16_t dst[], const SkPMColor src[], int count,
-                          const SkAlpha aa[]) const SK_OVERRIDE;
     virtual void xferA8(SkAlpha dst[], const SkPMColor src[], int count,
                         const SkAlpha aa[]) const SK_OVERRIDE;
 

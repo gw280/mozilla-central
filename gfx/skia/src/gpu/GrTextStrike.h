@@ -16,6 +16,7 @@
 #include "GrTHashCache.h"
 #include "GrPoint.h"
 #include "GrGlyph.h"
+#include "GrDrawTarget.h"
 
 class GrAtlasMgr;
 class GrFontCache;
@@ -37,7 +38,7 @@ public:
     GrMaskFormat getMaskFormat() const { return fMaskFormat; }
 
     inline GrGlyph* getGlyph(GrGlyph::PackedID, GrFontScaler*);
-    bool getGlyphAtlas(GrGlyph*, GrFontScaler*);
+    bool getGlyphAtlas(GrGlyph*, GrFontScaler*, GrDrawTarget::DrawToken currentDrawToken);
 
     // testing
     int countGlyphs() const { return fCache.getArray().count(); }
@@ -45,6 +46,9 @@ public:
         return fCache.getArray()[index];
     }
     GrAtlas* getAtlas() const { return fAtlas; }
+
+    // returns true if an atlas was removed
+    bool removeUnusedAtlases();
 
 public:
     // for LRU
@@ -81,6 +85,9 @@ public:
 
     void purgeExceptFor(GrTextStrike*);
 
+    // remove an unused atlas and its strike (if necessary)
+    void freeAtlasExceptFor(GrTextStrike*);
+
     // testing
     int countStrikes() const { return fCache.getArray().count(); }
     const GrTextStrike* strikeAt(int index) const {
@@ -88,7 +95,7 @@ public:
     }
     GrTextStrike* getHeadStrike() const { return fHead; }
 
-#if GR_DEBUG
+#ifdef SK_DEBUG
     void validate() const;
 #else
     void validate() const {}

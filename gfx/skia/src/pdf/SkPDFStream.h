@@ -21,6 +21,8 @@ class SkPDFCatalog;
 
     A stream object in a PDF.  Note, all streams must be indirect objects (via
     SkObjRef).
+    TODO(vandebo): SkStream should be replaced by SkStreamRewindable when that
+    is feasible.
 */
 class SkPDFStream : public SkPDFDict {
 public:
@@ -44,20 +46,46 @@ public:
     virtual size_t getOutputSize(SkPDFCatalog* catalog, bool indirect);
 
 protected:
-    /* Create a PDF stream with no data.  The setData method must be called to
-     * set the data.
-     */
-    SkPDFStream();
-
-    void setData(SkStream* stream);
-
-private:
     enum State {
         kUnused_State,         //!< The stream hasn't been requested yet.
         kNoCompression_State,  //!< The stream's been requested in an
                                //   uncompressed form.
         kCompressed_State,     //!< The stream's already been compressed.
     };
+
+    /* Create a PDF stream with no data.  The setData method must be called to
+     * set the data.
+     */
+    SkPDFStream();
+
+    // Populate the stream dictionary.  This method returns false if
+    // fSubstitute should be used.
+    virtual bool populate(SkPDFCatalog* catalog);
+
+    void setSubstitute(SkPDFStream* stream) {
+        fSubstitute.reset(stream);
+    }
+
+    SkPDFStream* getSubstitute() {
+        return fSubstitute.get();
+    }
+
+    void setData(SkData* data);
+    void setData(SkStream* stream);
+
+    SkStream* getData() {
+        return fData.get();
+    }
+
+    void setState(State state) {
+        fState = state;
+    }
+
+    State getState() {
+        return fState;
+    }
+
+private:
     // Indicates what form (or if) the stream has been requested.
     State fState;
 
@@ -66,10 +94,6 @@ private:
     SkAutoTUnref<SkPDFStream> fSubstitute;
 
     typedef SkPDFDict INHERITED;
-
-    // Populate the stream dictionary.  This method returns false if
-    // fSubstitute should be used.
-    bool populate(SkPDFCatalog* catalog);
 };
 
 #endif

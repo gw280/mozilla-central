@@ -30,16 +30,13 @@ public:
                           const char* outputColor,
                           const char* inputColor,
                           const TextureSamplerArray& samplers) SK_OVERRIDE {
-        const char* coords;
+        SkString coords;
         GrSLType coordsType = fEffectMatrix.emitCode(builder, key, &coords);
         builder->fsCodeAppendf("\t\t%s = ", outputColor);
-        builder->appendTextureLookup(GrGLShaderBuilder::kFragment_ShaderType,
-                                     samplers[0],
-                                     coords,
-                                     coordsType);
+        builder->fsAppendTextureLookup(samplers[0], coords.c_str(), coordsType);
         builder->fsCodeAppend(";\n");
         if (GrConfigConversionEffect::kNone_PMConversion == fPMConversion) {
-            GrAssert(fSwapRedAndBlue);
+            SkASSERT(fSwapRedAndBlue);
             builder->fsCodeAppendf("\t%s = %s.bgra;\n", outputColor, outputColor);
         } else {
             const char* swiz = fSwapRedAndBlue ? "bgr" : "rgb";
@@ -50,8 +47,12 @@ public:
                         outputColor, outputColor, swiz, outputColor, outputColor);
                     break;
                 case GrConfigConversionEffect::kMulByAlpha_RoundDown_PMConversion:
+                    // Add a compensation(0.001) here to avoid the side effect of the floor operation.
+                    // In Intel GPUs, the integer value converted from floor(%s.r * 255.0) / 255.0
+                    // is less than the integer value converted from  %s.r by 1 when the %s.r is
+                    // converted from the integer value 2^n, such as 1, 2, 4, 8, etc.
                     builder->fsCodeAppendf(
-                        "\t\t%s = vec4(floor(%s.%s * %s.a * 255.0) / 255.0, %s.a);\n",
+                        "\t\t%s = vec4(floor(%s.%s * %s.a * 255.0 + 0.001) / 255.0, %s.a);\n",
                         outputColor, outputColor, swiz, outputColor, outputColor);
                     break;
                 case GrConfigConversionEffect::kDivByAlpha_RoundUp_PMConversion:
@@ -85,7 +86,7 @@ public:
                                                         drawEffect,
                                                         conv.coordsType(),
                                                         conv.texture(0));
-        GrAssert(!(matrixKey & key));
+        SkASSERT(!(matrixKey & key));
         return matrixKey | key;
     }
 
@@ -107,10 +108,10 @@ GrConfigConversionEffect::GrConfigConversionEffect(GrTexture* texture,
     : GrSingleTextureEffect(texture, matrix)
     , fSwapRedAndBlue(swapRedAndBlue)
     , fPMConversion(pmConversion) {
-    GrAssert(kRGBA_8888_GrPixelConfig == texture->config() ||
+    SkASSERT(kRGBA_8888_GrPixelConfig == texture->config() ||
              kBGRA_8888_GrPixelConfig == texture->config());
     // Why did we pollute our texture cache instead of using a GrSingleTextureEffect?
-    GrAssert(swapRedAndBlue || kNone_PMConversion != pmConversion);
+    SkASSERT(swapRedAndBlue || kNone_PMConversion != pmConversion);
 }
 
 const GrBackendEffectFactory& GrConfigConversionEffect::getFactory() const {
@@ -209,13 +210,12 @@ void GrConfigConversionEffect::TestForPreservingPMConversions(GrContext* context
         *pmToUPMRule = kConversionRules[i][0];
         *upmToPMRule = kConversionRules[i][1];
 
-        static const GrRect kDstRect = GrRect::MakeWH(SkIntToScalar(256), SkIntToScalar(256));
-        static const GrRect kSrcRect = GrRect::MakeWH(SK_Scalar1, SK_Scalar1);
+        static const SkRect kDstRect = SkRect::MakeWH(SkIntToScalar(256), SkIntToScalar(256));
+        static const SkRect kSrcRect = SkRect::MakeWH(SK_Scalar1, SK_Scalar1);
         // We do a PM->UPM draw from dataTex to readTex and read the data. Then we do a UPM->PM draw
         // from readTex to tempTex followed by a PM->UPM draw to readTex and finally read the data.
         // We then verify that two reads produced the same values.
 
-        GrPaint paint;
         AutoEffectUnref pmToUPM1(SkNEW_ARGS(GrConfigConversionEffect, (dataTex,
                                                                        false,
                                                                        *pmToUPMRule,
@@ -234,17 +234,21 @@ void GrConfigConversionEffect::TestForPreservingPMConversions(GrContext* context
         SkAutoTUnref<GrEffectRef> pmToUPMEffect2(CreateEffectRef(pmToUPM2));
 
         context->setRenderTarget(readTex->asRenderTarget());
-        paint.colorStage(0)->setEffect(pmToUPMEffect1);
-        context->drawRectToRect(paint, kDstRect, kSrcRect);
+        GrPaint paint1;
+        paint1.addColorEffect(pmToUPMEffect1);
+        context->drawRectToRect(paint1, kDstRect, kSrcRect);
 
         readTex->readPixels(0, 0, 256, 256, kRGBA_8888_GrPixelConfig, firstRead);
 
         context->setRenderTarget(tempTex->asRenderTarget());
-        paint.colorStage(0)->setEffect(upmToPMEffect);
-        context->drawRectToRect(paint, kDstRect, kSrcRect);
+        GrPaint paint2;
+        paint2.addColorEffect(upmToPMEffect);
+        context->drawRectToRect(paint2, kDstRect, kSrcRect);
         context->setRenderTarget(readTex->asRenderTarget());
-        paint.colorStage(0)->setEffect(pmToUPMEffect2);
-        context->drawRectToRect(paint, kDstRect, kSrcRect);
+
+        GrPaint paint3;
+        paint3.addColorEffect(pmToUPMEffect2);
+        context->drawRectToRect(paint3, kDstRect, kSrcRect);
 
         readTex->readPixels(0, 0, 256, 256, kRGBA_8888_GrPixelConfig, secondRead);
 

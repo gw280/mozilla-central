@@ -7,12 +7,12 @@
  */
 
 #include "SkAnnotation.h"
+#include "SkBitmapDevice.h"
 #include "SkBitmapHeap.h"
 #include "SkCanvas.h"
 #include "SkColorFilter.h"
 #include "SkData.h"
 #include "SkDrawLooper.h"
-#include "SkDevice.h"
 #include "SkGPipe.h"
 #include "SkGPipePriv.h"
 #include "SkImageFilter.h"
@@ -231,7 +231,8 @@ public:
     virtual void drawBitmap(const SkBitmap&, SkScalar left, SkScalar top,
                             const SkPaint*) SK_OVERRIDE;
     virtual void drawBitmapRectToRect(const SkBitmap&, const SkRect* src,
-                                const SkRect& dst, const SkPaint*) SK_OVERRIDE;
+                                      const SkRect& dst, const SkPaint* paint,
+                                      DrawBitmapRectFlags flags) SK_OVERRIDE;
     virtual void drawBitmapMatrix(const SkBitmap&, const SkMatrix&,
                                   const SkPaint*) SK_OVERRIDE;
     virtual void drawBitmapNine(const SkBitmap& bitmap, const SkIRect& center,
@@ -255,6 +256,9 @@ public:
                           const uint16_t indices[], int indexCount,
                               const SkPaint&) SK_OVERRIDE;
     virtual void drawData(const void*, size_t) SK_OVERRIDE;
+    virtual void beginCommentGroup(const char* description) SK_OVERRIDE;
+    virtual void addComment(const char* kywd, const char* value) SK_OVERRIDE;
+    virtual void endCommentGroup() SK_OVERRIDE;
 
     /**
      * Flatten an SkBitmap to send to the reader, where it will be referenced
@@ -343,7 +347,7 @@ bool SkGPipeCanvas::shuttleBitmap(const SkBitmap& bm, int32_t slot) {
     SkASSERT(shouldFlattenBitmaps(fFlags));
     SkOrderedWriteBuffer buffer(1024);
     buffer.setNamedFactoryRecorder(fFactorySet);
-    bm.flatten(buffer);
+    buffer.writeBitmap(bm);
     this->flattenFactoryNames();
     uint32_t size = buffer.size();
     if (this->needOpBytes(size)) {
@@ -428,7 +432,7 @@ SkGPipeCanvas::SkGPipeCanvas(SkGPipeController* controller,
     // We don't allocate pixels for the bitmap
     SkBitmap bitmap;
     bitmap.setConfig(SkBitmap::kARGB_8888_Config, width, height);
-    SkDevice* device = SkNEW_ARGS(SkDevice, (bitmap));
+    SkBaseDevice* device = SkNEW_ARGS(SkBitmapDevice, (bitmap));
     this->setDevice(device)->unref();
 
     // Tell the reader the appropriate flags to use.
@@ -771,7 +775,8 @@ void SkGPipeCanvas::drawBitmap(const SkBitmap& bm, SkScalar left, SkScalar top,
 }
 
 void SkGPipeCanvas::drawBitmapRectToRect(const SkBitmap& bm, const SkRect* src,
-                                   const SkRect& dst, const SkPaint* paint) {
+                                         const SkRect& dst, const SkPaint* paint,
+                                         DrawBitmapRectFlags dbmrFlags) {
     NOTIFY_SETUP(this);
     size_t opBytesNeeded = sizeof(SkRect);
     bool hasSrc = src != NULL;
@@ -781,6 +786,9 @@ void SkGPipeCanvas::drawBitmapRectToRect(const SkBitmap& bm, const SkRect* src,
         opBytesNeeded += sizeof(int32_t) * 4;
     } else {
         flags = 0;
+    }
+    if (dbmrFlags & kBleed_DrawBitmapRectFlag) {
+        flags |= kDrawBitmap_Bleed_DrawOpFlag;
     }
 
     if (this->commonDrawBitmap(bm, kDrawBitmapRectToRect_DrawOp, flags, opBytesNeeded, paint)) {
@@ -968,6 +976,18 @@ void SkGPipeCanvas::drawData(const void* ptr, size_t size) {
             fWriter.writePad(ptr, size);
         }
     }
+}
+
+void SkGPipeCanvas::beginCommentGroup(const char* description) {
+    // ignore for now
+}
+
+void SkGPipeCanvas::addComment(const char* kywd, const char* value) {
+    // ignore for now
+}
+
+void SkGPipeCanvas::endCommentGroup() {
+    // ignore for now
 }
 
 void SkGPipeCanvas::flushRecording(bool detachCurrentBlock) {

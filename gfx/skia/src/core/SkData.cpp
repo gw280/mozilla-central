@@ -7,13 +7,7 @@
 
 #include "SkData.h"
 #include "SkFlattenableBuffers.h"
-
-#if SK_MMAP_SUPPORT
-    #include <unistd.h>
-    #include <sys/mman.h>
-    #include <fcntl.h>
-    #include <errno.h>
-#endif
+#include "SkOSFile.h"
 
 SK_DEFINE_INST_COUNT(SkData)
 
@@ -88,6 +82,41 @@ SkData* SkData::NewWithProc(const void* data, size_t length,
     return new SkData(data, length, proc, context);
 }
 
+// assumes fPtr was allocated with sk_fmmap
+static void sk_mmap_releaseproc(const void* addr, size_t length, void*) {
+    sk_fmunmap(addr, length);
+}
+
+SkData* SkData::NewFromFILE(SkFILE* f) {
+    size_t size;
+    void* addr = sk_fmmap(f, &size);
+    if (NULL == addr) {
+        return NULL;
+    }
+
+    return SkData::NewWithProc(addr, size, sk_mmap_releaseproc, NULL);
+}
+
+SkData* SkData::NewFromFileName(const char path[]) {
+    SkFILE* f = path ? sk_fopen(path, kRead_SkFILE_Flag) : NULL;
+    if (NULL == f) {
+        return NULL;
+    }
+    SkData* data = NewFromFILE(f);
+    sk_fclose(f);
+    return data;
+}
+
+SkData* SkData::NewFromFD(int fd) {
+    size_t size;
+    void* addr = sk_fdmmap(fd, &size);
+    if (NULL == addr) {
+        return NULL;
+    }
+
+    return SkData::NewWithProc(addr, size, sk_mmap_releaseproc, NULL);
+}
+
 // assumes context is a SkData
 static void sk_dataref_releaseproc(const void*, size_t, void* context) {
     SkData* src = reinterpret_cast<SkData*>(context);
@@ -126,20 +155,6 @@ SkData* SkData::NewWithCString(const char cstr[]) {
     }
     return NewWithCopy(cstr, size);
 }
-
-#if SK_MMAP_SUPPORT
-static void sk_munmap_releaseproc(const void* addr, size_t length, void*) {
-    munmap(const_cast<void*>(addr), length);
-}
-
-SkData* SkData::NewFromMMap(const void* addr, size_t length) {
-    return SkNEW_ARGS(SkData, (addr, length, sk_munmap_releaseproc, NULL));
-}
-#else
-SkData* SkData::NewFromMMap(const void* addr, size_t length) {
-    return NULL;
-}
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 

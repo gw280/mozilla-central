@@ -11,9 +11,9 @@
 #include "SkPicturePlayback.h"
 #include "SkPictureRecord.h"
 
+#include "SkBitmapDevice.h"
 #include "SkCanvas.h"
 #include "SkChunkAlloc.h"
-#include "SkDevice.h"
 #include "SkPicture.h"
 #include "SkRegion.h"
 #include "SkStream.h"
@@ -121,7 +121,7 @@ SkPicture::SkPicture() {
     fWidth = fHeight = 0;
 }
 
-SkPicture::SkPicture(const SkPicture& src) {
+SkPicture::SkPicture(const SkPicture& src) : INHERITED() {
     fWidth = src.fWidth;
     fHeight = src.fHeight;
     fRecord = NULL;
@@ -205,7 +205,7 @@ SkCanvas* SkPicture::beginRecording(int width, int height,
 
     SkBitmap bm;
     bm.setConfig(SkBitmap::kNo_Config, width, height);
-    SkAutoTUnref<SkDevice> dev(SkNEW_ARGS(SkDevice, (bm)));
+    SkAutoTUnref<SkBaseDevice> dev(SkNEW_ARGS(SkBitmapDevice, (bm)));
 
     // Must be set before calling createBBoxHierarchy
     fWidth = width;
@@ -232,8 +232,10 @@ SkBBoxHierarchy* SkPicture::createBBoxHierarchy() const {
 
     SkScalar aspectRatio = SkScalarDiv(SkIntToScalar(fWidth),
                                        SkIntToScalar(fHeight));
+    bool sortDraws = false;  // Do not sort draw calls when bulk loading.
+
     return SkRTree::Create(kRTreeMinChildren, kRTreeMaxChildren,
-                           aspectRatio);
+                           aspectRatio, sortDraws);
 }
 
 SkCanvas* SkPicture::getRecordingCanvas() const {
@@ -253,10 +255,10 @@ void SkPicture::endRecording() {
     SkASSERT(NULL == fRecord);
 }
 
-void SkPicture::draw(SkCanvas* surface) {
+void SkPicture::draw(SkCanvas* surface, SkDrawPictureCallback* callback) {
     this->endRecording();
     if (fPlayback) {
-        fPlayback->draw(*surface);
+        fPlayback->draw(*surface, callback);
     }
 }
 
@@ -264,41 +266,52 @@ void SkPicture::draw(SkCanvas* surface) {
 
 #include "SkStream.h"
 
-SkPicture::SkPicture(SkStream* stream) {
-    this->initFromStream(stream, NULL, NULL);
-}
-
-SkPicture::SkPicture(SkStream* stream, bool* success, InstallPixelRefProc proc) {
-    this->initFromStream(stream, success, proc);
-}
-
-void SkPicture::initFromStream(SkStream* stream, bool* success, InstallPixelRefProc proc) {
-    if (success) {
-        *success = false;
+bool SkPicture::StreamIsSKP(SkStream* stream, SkPictInfo* pInfo) {
+    if (NULL == stream) {
+        return false;
     }
-    fRecord = NULL;
-    fPlayback = NULL;
-    fWidth = fHeight = 0;
 
     SkPictInfo info;
-
-    if (!stream->read(&info, sizeof(info))) {
-        return;
+    if (!stream->read(&info, sizeof(SkPictInfo))) {
+        return false;
     }
-    if (PICTURE_VERSION != info.fVersion) {
-        return;
+    if (PICTURE_VERSION != info.fVersion
+#ifndef DELETE_THIS_CODE_WHEN_SKPS_ARE_REBUILT_AT_V13_AND_ALL_OTHER_INSTANCES_TOO
+        // V13 is backwards compatible with V12
+        && PRIOR_PICTURE_VERSION != info.fVersion  // TODO: remove when .skps regenerated
+#endif
+        ) {
+        return false;
     }
 
+    if (pInfo != NULL) {
+        *pInfo = info;
+    }
+    return true;
+}
+
+SkPicture::SkPicture(SkPicturePlayback* playback, int width, int height)
+    : fPlayback(playback)
+    , fRecord(NULL)
+    , fWidth(width)
+    , fHeight(height) {}
+
+SkPicture* SkPicture::CreateFromStream(SkStream* stream, InstallPixelRefProc proc) {
+    SkPictInfo info;
+
+    if (!StreamIsSKP(stream, &info)) {
+        return NULL;
+    }
+
+    SkPicturePlayback* playback;
+    // Check to see if there is a playback to recreate.
     if (stream->readBool()) {
-        fPlayback = SkNEW_ARGS(SkPicturePlayback, (stream, info, proc));
+        playback = SkNEW_ARGS(SkPicturePlayback, (stream, info, proc));
+    } else {
+        playback = NULL;
     }
 
-    // do this at the end, so that they will be zero if we hit an error.
-    fWidth = info.fWidth;
-    fHeight = info.fHeight;
-    if (success) {
-        *success = true;
-    }
+    return SkNEW_ARGS(SkPicture, (playback, info.fWidth, info.fHeight));
 }
 
 void SkPicture::serialize(SkWStream* stream, EncodeBitmap encoder) const {

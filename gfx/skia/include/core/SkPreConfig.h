@@ -196,16 +196,6 @@
 
 //////////////////////////////////////////////////////////////////////
 
-/**
- *  THUMB is the only known config where we avoid small branches in
- *  favor of more complex math.
- */
-#if !(defined(__arm__) && defined(__thumb__))
-    #define SK_CPU_HAS_CONDITIONAL_INSTR
-#endif
-
-//////////////////////////////////////////////////////////////////////
-
 #if !defined(SKIA_IMPLEMENTATION)
     #define SKIA_IMPLEMENTATION 0
 #endif

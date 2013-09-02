@@ -36,7 +36,7 @@ struct GrGLIRect {
         GR_GL_GetIntegerv(gl, GR_GL_VIEWPORT, (GrGLint*) this);
     }
 
-    // sometimes we have a GrIRect from the client that we
+    // sometimes we have a SkIRect from the client that we
     // want to simultaneously make relative to GL's viewport
     // and (optionally) convert from top-down to bottom-up.
     void setRelativeTo(const GrGLIRect& glRect,
@@ -54,10 +54,10 @@ struct GrGLIRect {
         }
         fHeight = height;
 
-        GrAssert(fLeft >= 0);
-        GrAssert(fWidth >= 0);
-        GrAssert(fBottom >= 0);
-        GrAssert(fHeight >= 0);
+        SkASSERT(fLeft >= 0);
+        SkASSERT(fWidth >= 0);
+        SkASSERT(fBottom >= 0);
+        SkASSERT(fHeight >= 0);
     }
 
     bool contains(const GrGLIRect& glRect) const {

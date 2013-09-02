@@ -10,6 +10,7 @@
 #include "SkEndian.h"
 #include "SkString.h"
 #include "SkTSearch.h"
+#include "SkTemplates.h"
 #include "SkUtils.h"
 
 static SkUnichar SkUTF16BE_NextUnichar(const uint16_t** srcPtr) {
@@ -430,17 +431,9 @@ BCP47FromLanguageID[] = {
 };
 
 namespace {
-int BCP47FromLanguageIdCompare(const BCP47FromLanguageId* a, const BCP47FromLanguageId* b) {
-    return a->languageID - b->languageID;
+bool BCP47FromLanguageIdLess(const BCP47FromLanguageId& a, const BCP47FromLanguageId& b) {
+    return a.languageID < b.languageID;
 }
-}
-
-template <typename D, typename S> static D* SkTAfter(S const * const ptr, size_t count = 1) {
-    return (D*)(ptr + count);
-}
-
-template <typename D, typename S> static D* SkTAddOffset(S const * const ptr, size_t byteOffset) {
-    return (D*)((char*)ptr + byteOffset);
 }
 
 bool SkOTTableName::Iterator::next(SkOTTableName::Iterator::Record& record) {
@@ -458,29 +451,40 @@ bool SkOTTableName::Iterator::next(SkOTTableName::Iterator::Record& record) {
         ++fIndex;
     } while (fType != -1 && nameRecord->nameID.fontSpecific != fType);
 
+    record.type = nameRecord->nameID.fontSpecific;
+
     const uint16_t stringTableOffset = SkEndian_SwapBE16(fName.stringOffset);
-    const char* stringTable = SkTAddOffset<char>(&fName, stringTableOffset);
+    const char* stringTable = SkTAddOffset<const char>(&fName, stringTableOffset);
 
     // Decode the name into UTF-8.
     const uint16_t nameOffset = SkEndian_SwapBE16(nameRecord->offset);
     const uint16_t nameLength = SkEndian_SwapBE16(nameRecord->length);
-    const char* nameString = SkTAddOffset<char>(stringTable, nameOffset);
+    const char* nameString = SkTAddOffset<const char>(stringTable, nameOffset);
     switch (nameRecord->platformID.value) {
         case SkOTTableName::Record::PlatformID::Windows:
-            SkASSERT(SkOTTableName::Record::EncodingID::Windows::UnicodeBMPUCS2
-                  == nameRecord->encodingID.windows.value
-                  || SkOTTableName::Record::EncodingID::Windows::UnicodeUCS4
-                  == nameRecord->encodingID.windows.value
-                  || SkOTTableName::Record::EncodingID::Windows::Symbol
-                  == nameRecord->encodingID.windows.value);
+            if (SkOTTableName::Record::EncodingID::Windows::UnicodeBMPUCS2
+                   != nameRecord->encodingID.windows.value
+                && SkOTTableName::Record::EncodingID::Windows::UnicodeUCS4
+                   != nameRecord->encodingID.windows.value
+                && SkOTTableName::Record::EncodingID::Windows::Symbol
+                   != nameRecord->encodingID.windows.value)
+            {
+                record.name.reset();
+                break;
+            }
         case SkOTTableName::Record::PlatformID::Unicode:
         case SkOTTableName::Record::PlatformID::ISO:
             SkStringFromUTF16BE((const uint16_t*)nameString, nameLength, record.name);
             break;
 
         case SkOTTableName::Record::PlatformID::Macintosh:
-            SkASSERT(SkOTTableName::Record::EncodingID::Macintosh::Roman
-                  == nameRecord->encodingID.macintosh.value);
+            // TODO: need better decoding, especially on Mac.
+            if (SkOTTableName::Record::EncodingID::Macintosh::Roman
+                != nameRecord->encodingID.macintosh.value)
+            {
+                record.name.reset();
+                break;
+            }
             SkStringFromMacRoman((const uint8_t*)nameString, nameLength, record.name);
             break;
 
@@ -502,7 +506,7 @@ bool SkOTTableName::Iterator::next(SkOTTableName::Iterator::Record& record) {
         const SkOTTableName::Format1Ext* format1ext =
             SkTAfter<const SkOTTableName::Format1Ext>(nameRecords, nameRecordsCount);
 
-        if (languageTagRecordIndex < format1ext->langTagCount) {
+        if (languageTagRecordIndex < SkEndian_SwapBE16(format1ext->langTagCount)) {
             const SkOTTableName::Format1Ext::LangTagRecord* languageTagRecord =
                 SkTAfter<const SkOTTableName::Format1Ext::LangTagRecord>(format1ext);
 
@@ -516,7 +520,7 @@ bool SkOTTableName::Iterator::next(SkOTTableName::Iterator::Record& record) {
 
     // Handle format 0 languages, translating them into BCP 47.
     const BCP47FromLanguageId target = { languageID, "" };
-    int languageIndex = SkTSearch<BCP47FromLanguageId, BCP47FromLanguageIdCompare>(
+    int languageIndex = SkTSearch<BCP47FromLanguageId, BCP47FromLanguageIdLess>(
         BCP47FromLanguageID, SK_ARRAY_COUNT(BCP47FromLanguageID), target, sizeof(target));
     if (languageIndex >= 0) {
         record.language = BCP47FromLanguageID[languageIndex].bcp47;

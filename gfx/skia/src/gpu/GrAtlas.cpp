@@ -40,13 +40,21 @@
 
 #define BORDER      1
 
-#if GR_DEBUG
+#ifdef SK_DEBUG
     static int gCounter;
 #endif
 
-GrAtlas::GrAtlas(GrAtlasMgr* mgr, int plotX, int plotY, GrMaskFormat format) {
+// for testing
+#define FONT_CACHE_STATS 0
+#if FONT_CACHE_STATS
+static int g_UploadCount = 0;
+#endif
+
+GrAtlas::GrAtlas(GrAtlasMgr* mgr, int plotX, int plotY, GrMaskFormat format) :
+                 fDrawToken(NULL, 0) {
     fAtlasMgr = mgr;    // just a pointer, not an owner
     fNext = NULL;
+
     fTexture = mgr->getTexture(format); // we're not an owner, just a pointer
     fPlot.set(plotX, plotY);
 
@@ -55,21 +63,42 @@ GrAtlas::GrAtlas(GrAtlasMgr* mgr, int plotX, int plotY, GrMaskFormat format) {
 
     fMaskFormat = format;
 
-#if GR_DEBUG
+#ifdef SK_DEBUG
 //    GrPrintf(" GrAtlas %p [%d %d] %d\n", this, plotX, plotY, gCounter);
     gCounter += 1;
 #endif
 }
 
 GrAtlas::~GrAtlas() {
-    fAtlasMgr->freePlot(fPlot.fX, fPlot.fY);
+    fAtlasMgr->freePlot(fMaskFormat, fPlot.fX, fPlot.fY);
 
     delete fRects;
 
-#if GR_DEBUG
+#ifdef SK_DEBUG
     --gCounter;
 //    GrPrintf("~GrAtlas %p [%d %d] %d\n", this, fPlot.fX, fPlot.fY, gCounter);
 #endif
+}
+
+bool GrAtlas::RemoveUnusedAtlases(GrAtlasMgr* atlasMgr, GrAtlas** startAtlas) {
+    // GrAtlas** is used so that a pointer to the head element can be passed in and
+    // modified when the first element is deleted
+    GrAtlas** atlasRef = startAtlas;
+    GrAtlas* atlas = *startAtlas;
+    bool removed = false;
+    while (NULL != atlas) {
+        if (atlas->drawToken().isIssued()) {
+            *atlasRef = atlas->fNext;
+            atlasMgr->deleteAtlas(atlas);
+            atlas = *atlasRef;
+            removed = true;
+        } else {
+            atlasRef = &atlas->fNext;
+            atlas = atlas->fNext;
+        }
+    }
+
+    return removed;
 }
 
 static void adjustForPlot(GrIPoint16* loc, const GrIPoint16& plot) {
@@ -122,6 +151,11 @@ bool GrAtlas::addSubImage(int width, int height, const void* image,
     // now tell the caller to skip the top/left BORDER
     loc->fX += BORDER;
     loc->fY += BORDER;
+
+#if FONT_CACHE_STATS
+    ++g_UploadCount;
+#endif
+
     return true;
 }
 
@@ -139,7 +173,11 @@ GrAtlasMgr::~GrAtlasMgr() {
         GrSafeUnref(fTexture[i]);
     }
     delete fPlotMgr;
+
     fGpu->unref();
+#if FONT_CACHE_STATS
+      GrPrintf("Num uploads: %d\n", g_UploadCount);
+#endif
 }
 
 static GrPixelConfig maskformat2pixelconfig(GrMaskFormat format) {
@@ -151,31 +189,36 @@ static GrPixelConfig maskformat2pixelconfig(GrMaskFormat format) {
         case kA888_GrMaskFormat:
             return kSkia8888_GrPixelConfig;
         default:
-            GrAssert(!"unknown maskformat");
+            SkDEBUGFAIL("unknown maskformat");
     }
     return kUnknown_GrPixelConfig;
 }
 
-GrAtlas* GrAtlasMgr::addToAtlas(GrAtlas* atlas,
+GrAtlas* GrAtlasMgr::addToAtlas(GrAtlas** atlas,
                                 int width, int height, const void* image,
                                 GrMaskFormat format,
                                 GrIPoint16* loc) {
-    GrAssert(NULL == atlas || atlas->getMaskFormat() == format);
+    SkASSERT(NULL == *atlas || (*atlas)->getMaskFormat() == format);
 
-    if (atlas && atlas->addSubImage(width, height, image, loc)) {
-        return atlas;
+    // iterate through entire atlas list, see if we can find a hole
+    GrAtlas* atlasIter = *atlas;
+    while (atlasIter) {
+        if (atlasIter->addSubImage(width, height, image, loc)) {
+            return atlasIter;
+        }
+        atlasIter = atlasIter->fNext;
     }
 
     // If the above fails, then either we have no starting atlas, or the current
-    // one is full. Either way we need to allocate a new atlas
+    // atlas list is full. Either way we need to allocate a new atlas
 
     GrIPoint16 plot;
     if (!fPlotMgr->newPlot(&plot)) {
         return NULL;
     }
 
-    GrAssert(0 == kA8_GrMaskFormat);
-    GrAssert(1 == kA565_GrMaskFormat);
+    SkASSERT(0 == kA8_GrMaskFormat);
+    SkASSERT(1 == kA565_GrMaskFormat);
     if (NULL == fTexture[format]) {
         // TODO: Update this to use the cache rather than directly creating a texture.
         GrTextureDesc desc;
@@ -196,11 +239,14 @@ GrAtlas* GrAtlasMgr::addToAtlas(GrAtlas* atlas,
         return NULL;
     }
 
-    newAtlas->fNext = atlas;
+    // new atlas, put at head
+    newAtlas->fNext = *atlas;
+    *atlas = newAtlas;
+
     return newAtlas;
 }
 
-void GrAtlasMgr::freePlot(int x, int y) {
-    GrAssert(fPlotMgr->isBusy(x, y));
+void GrAtlasMgr::freePlot(GrMaskFormat format, int x, int y) {
+    SkASSERT(fPlotMgr->isBusy(x, y));
     fPlotMgr->freePlot(x, y);
 }

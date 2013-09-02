@@ -13,7 +13,7 @@
 
 #include "SkGr.h"
 #include "SkBitmap.h"
-#include "SkDevice.h"
+#include "SkBitmapDevice.h"
 #include "SkRegion.h"
 #include "GrContext.h"
 
@@ -22,10 +22,10 @@ struct GrSkDrawProcs;
 class GrTextContext;
 
 /**
- *  Subclass of SkDevice, which directs all drawing to the GrGpu owned by the
+ *  Subclass of SkBitmapDevice, which directs all drawing to the GrGpu owned by the
  *  canvas.
  */
-class SK_API SkGpuDevice : public SkDevice {
+class SK_API SkGpuDevice : public SkBitmapDevice {
 public:
 
     /**
@@ -60,9 +60,9 @@ public:
 
     GrContext* context() const { return fContext; }
 
-    virtual SkGpuRenderTarget* accessRenderTarget() SK_OVERRIDE;
+    virtual GrRenderTarget* accessRenderTarget() SK_OVERRIDE;
 
-    // overrides from SkDevice
+    // overrides from SkBaseDevice
 
     virtual void clear(SkColor color) SK_OVERRIDE;
     virtual void writePixels(const SkBitmap& bitmap, int x, int y,
@@ -73,17 +73,19 @@ public:
                             const SkPoint[], const SkPaint& paint) SK_OVERRIDE;
     virtual void drawRect(const SkDraw&, const SkRect& r,
                           const SkPaint& paint) SK_OVERRIDE;
+    virtual void drawRRect(const SkDraw&, const SkRRect& r,
+                           const SkPaint& paint) SK_OVERRIDE;
     virtual void drawOval(const SkDraw&, const SkRect& oval,
                           const SkPaint& paint) SK_OVERRIDE;
     virtual void drawPath(const SkDraw&, const SkPath& path,
                           const SkPaint& paint, const SkMatrix* prePathMatrix,
                           bool pathIsMutable) SK_OVERRIDE;
     virtual void drawBitmap(const SkDraw&, const SkBitmap& bitmap,
-                            const SkIRect* srcRectOrNull,
                             const SkMatrix&, const SkPaint&) SK_OVERRIDE;
     virtual void drawBitmapRect(const SkDraw&, const SkBitmap&,
                                 const SkRect* srcOrNull, const SkRect& dst,
-                                const SkPaint& paint) SK_OVERRIDE;
+                                const SkPaint& paint,
+                                SkCanvas::DrawBitmapRectFlags flags) SK_OVERRIDE;
     virtual void drawSprite(const SkDraw&, const SkBitmap& bitmap,
                             int x, int y, const SkPaint& paint);
     virtual void drawText(const SkDraw&, const void* text, size_t len,
@@ -99,11 +101,11 @@ public:
                               const SkColor colors[], SkXfermode* xmode,
                               const uint16_t indices[], int indexCount,
                               const SkPaint&) SK_OVERRIDE;
-    virtual void drawDevice(const SkDraw&, SkDevice*, int x, int y,
+    virtual void drawDevice(const SkDraw&, SkBaseDevice*, int x, int y,
                             const SkPaint&) SK_OVERRIDE;
     virtual bool filterTextFlags(const SkPaint&, TextFlags*) SK_OVERRIDE;
 
-    virtual void flush();
+    virtual void flush() SK_OVERRIDE;
 
     virtual void onAttachToCanvas(SkCanvas* canvas) SK_OVERRIDE;
     virtual void onDetachFromCanvas() SK_OVERRIDE;
@@ -121,7 +123,7 @@ public:
     class SkAutoCachedTexture; // used internally
 
 protected:
-    // overrides from SkDevice
+    // overrides from SkBaseDevice
     virtual bool onReadPixels(const SkBitmap& bitmap,
                               int x, int y,
                               SkCanvas::Config8888 config8888) SK_OVERRIDE;
@@ -143,14 +145,13 @@ private:
     // used by createCompatibleDevice
     SkGpuDevice(GrContext*, GrTexture* texture, bool needClear);
 
-    // override from SkDevice
-    virtual SkDevice* onCreateCompatibleDevice(SkBitmap::Config config,
-                                               int width, int height,
-                                               bool isOpaque,
-                                               Usage usage) SK_OVERRIDE;
+    // override from SkBaseDevice
+    virtual SkBaseDevice* onCreateCompatibleDevice(SkBitmap::Config config,
+                                                   int width, int height,
+                                                   bool isOpaque,
+                                                   Usage usage) SK_OVERRIDE;
 
     SkDrawProcs* initDrawForText(GrTextContext*);
-    bool bindDeviceAsTexture(GrPaint* paint);
 
     // sets the render target, clip, and matrix on GrContext. Use forceIdenity to override
     // SkDraw's matrix and draw in device coords.
@@ -163,7 +164,8 @@ private:
                           const SkBitmap& bitmap,
                           const SkRect* srcRectPtr,
                           const SkMatrix&,
-                          const SkPaint&);
+                          const SkPaint&,
+                          SkCanvas::DrawBitmapRectFlags flags);
 
     /**
      * Helper functions called by drawBitmapCommon. By the time these are called the SkDraw's
@@ -176,19 +178,21 @@ private:
                             const SkRect&,
                             const SkMatrix&,
                             const GrTextureParams& params,
-                            GrPaint* grPaint);
+                            const SkPaint& paint,
+                            SkCanvas::DrawBitmapRectFlags flags);
     void drawTiledBitmap(const SkBitmap& bitmap,
                          const SkRect& srcRect,
                          const SkMatrix& m,
                          const GrTextureParams& params,
-                         GrPaint* grPaint);
+                         const SkPaint& paint,
+                         SkCanvas::DrawBitmapRectFlags flags);
 
     /**
      * Returns non-initialized instance.
      */
     GrTextContext* getTextContext();
 
-    typedef SkDevice INHERITED;
+    typedef SkBitmapDevice INHERITED;
 };
 
 #endif

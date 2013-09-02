@@ -23,12 +23,15 @@ enum GrGLBinding {
     kNone_GrGLBinding = 0x0,
 
     kDesktop_GrGLBinding = 0x01,
-    kES2_GrGLBinding = 0x02,
+    kES_GrGLBinding = 0x02,  // ES2+ only
 
     // for iteration of GrGLBindings
     kFirstGrGLBinding = kDesktop_GrGLBinding,
-    kLastGrGLBinding = kES2_GrGLBinding
+    kLastGrGLBinding = kES_GrGLBinding
 };
+
+// Temporary alias until Chromium can be updated.
+static const GrGLBinding kES2_GrGLBinding = kES_GrGLBinding;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -107,7 +110,7 @@ typedef intptr_t GrGLInterfaceCallbackData;
  * non-NULL or GrContext creation will fail. This can be tested with the
  * validate() method when the OpenGL context has been made current.
  */
-struct GR_API GrGLInterface : public GrRefCnt {
+struct SK_API GrGLInterface : public GrRefCnt {
 private:
     // simple wrapper class that exists only to initialize a pointer to NULL
     template <typename FNPTR_TYPE> class GLPtr {
@@ -156,9 +159,11 @@ public:
     GLPtr<GrGLClearProc> fClear;
     GLPtr<GrGLClearColorProc> fClearColor;
     GLPtr<GrGLClearStencilProc> fClearStencil;
+    GLPtr<GrGLClientActiveTextureProc> fClientActiveTexture;
     GLPtr<GrGLColorMaskProc> fColorMask;
     GLPtr<GrGLCompileShaderProc> fCompileShader;
     GLPtr<GrGLCompressedTexImage2DProc> fCompressedTexImage2D;
+    GLPtr<GrGLCopyTexSubImage2DProc> fCopyTexSubImage2D;
     GLPtr<GrGLCreateProgramProc> fCreateProgram;
     GLPtr<GrGLCreateShaderProc> fCreateShader;
     GLPtr<GrGLCullFaceProc> fCullFace;
@@ -172,12 +177,14 @@ public:
     GLPtr<GrGLDeleteVertexArraysProc> fDeleteVertexArrays;
     GLPtr<GrGLDepthMaskProc> fDepthMask;
     GLPtr<GrGLDisableProc> fDisable;
+    GLPtr<GrGLDisableClientStateProc> fDisableClientState;
     GLPtr<GrGLDisableVertexAttribArrayProc> fDisableVertexAttribArray;
     GLPtr<GrGLDrawArraysProc> fDrawArrays;
     GLPtr<GrGLDrawBufferProc> fDrawBuffer;
     GLPtr<GrGLDrawBuffersProc> fDrawBuffers;
     GLPtr<GrGLDrawElementsProc> fDrawElements;
     GLPtr<GrGLEnableProc> fEnable;
+    GLPtr<GrGLEnableClientStateProc> fEnableClientState;
     GLPtr<GrGLEnableVertexAttribArrayProc> fEnableVertexAttribArray;
     GLPtr<GrGLEndQueryProc> fEndQuery;
     GLPtr<GrGLFinishProc> fFinish;
@@ -188,6 +195,7 @@ public:
     GLPtr<GrGLFrontFaceProc> fFrontFace;
     GLPtr<GrGLGenBuffersProc> fGenBuffers;
     GLPtr<GrGLGenFramebuffersProc> fGenFramebuffers;
+    GLPtr<GrGLGenerateMipmapProc> fGenerateMipmap;
     GLPtr<GrGLGenQueriesProc> fGenQueries;
     GLPtr<GrGLGenRenderbuffersProc> fGenRenderbuffers;
     GLPtr<GrGLGenTexturesProc> fGenTextures;
@@ -229,11 +237,15 @@ public:
     GLPtr<GrGLStencilMaskSeparateProc> fStencilMaskSeparate;
     GLPtr<GrGLStencilOpProc> fStencilOp;
     GLPtr<GrGLStencilOpSeparateProc> fStencilOpSeparate;
+    GLPtr<GrGLTexGenfProc> fTexGenf;
+    GLPtr<GrGLTexGenfvProc> fTexGenfv;
+    GLPtr<GrGLTexGeniProc> fTexGeni;
     GLPtr<GrGLTexImage2DProc> fTexImage2D;
     GLPtr<GrGLTexParameteriProc> fTexParameteri;
     GLPtr<GrGLTexParameterivProc> fTexParameteriv;
     GLPtr<GrGLTexSubImage2DProc> fTexSubImage2D;
     GLPtr<GrGLTexStorage2DProc> fTexStorage2D;
+    GLPtr<GrGLDiscardFramebufferProc> fDiscardFramebuffer;
     GLPtr<GrGLUniform1fProc> fUniform1f;
     GLPtr<GrGLUniform1iProc> fUniform1i;
     GLPtr<GrGLUniform1fvProc> fUniform1fv;
@@ -257,6 +269,7 @@ public:
     GLPtr<GrGLUseProgramProc> fUseProgram;
     GLPtr<GrGLVertexAttrib4fvProc> fVertexAttrib4fv;
     GLPtr<GrGLVertexAttribPointerProc> fVertexAttribPointer;
+    GLPtr<GrGLVertexPointerProc> fVertexPointer;
     GLPtr<GrGLViewportProc> fViewport;
 
     // Experimental: Functions for GL_NV_path_rendering. These will be

@@ -551,10 +551,16 @@ struct SkOTTableName {
     public:
         Iterator(const SkOTTableName& name) : fName(name), fIndex(0), fType(-1) { }
         Iterator(const SkOTTableName& name, SkOTTableName::Record::NameID::Predefined::Value type)
-            : fName(name), fIndex(0), fType(type) 
+            : fName(name), fIndex(0), fType(type)
         { }
 
+        void reset(SkOTTableName::Record::NameID::Predefined::Value type) {
+            fIndex = 0;
+            fType = type;
+        }
+
         struct Record {
+            SK_OT_USHORT type;
             SkString name;
             SkString language;
         };

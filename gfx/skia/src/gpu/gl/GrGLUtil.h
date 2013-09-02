@@ -23,6 +23,7 @@ enum GrGLVendor {
     kARM_GrGLVendor,
     kImagination_GrGLVendor,
     kIntel_GrGLVendor,
+    kQualcomm_GrGLVendor,
 
     kOther_GrGLVendor
 };
@@ -71,6 +72,7 @@ enum GrGLVendor {
 GrGLVersion GrGLGetVersionFromString(const char* versionString);
 GrGLBinding GrGLGetBindingInUseFromString(const char* versionString);
 GrGLSLVersion GrGLGetGLSLVersionFromString(const char* versionString);
+bool GrGLIsMesaFromVersionString(const char* versionString);
 GrGLVendor GrGLGetVendorFromString(const char* vendorString);
 
 // these variants call glGetString()

@@ -10,25 +10,35 @@
 #include "SkBitmap.h"
 #include "SkFlattenableBuffers.h"
 #include "SkRect.h"
+#if SK_SUPPORT_GPU
+#include "GrContext.h"
+#include "GrTexture.h"
+#include "SkImageFilterUtils.h"
+#endif
 
 SK_DEFINE_INST_COUNT(SkImageFilter)
 
-SkImageFilter::SkImageFilter(int inputCount, SkImageFilter** inputs)
-  : fInputCount(inputCount), fInputs(new SkImageFilter*[inputCount]) {
+SkImageFilter::SkImageFilter(int inputCount, SkImageFilter** inputs, const SkIRect* cropRect)
+  : fInputCount(inputCount),
+    fInputs(new SkImageFilter*[inputCount]),
+    fCropRect(cropRect ? *cropRect : SkIRect::MakeLargest()) {
     for (int i = 0; i < inputCount; ++i) {
         fInputs[i] = inputs[i];
         SkSafeRef(fInputs[i]);
     }
 }
 
-SkImageFilter::SkImageFilter(SkImageFilter* input)
-  : fInputCount(1), fInputs(new SkImageFilter*[1]) {
+SkImageFilter::SkImageFilter(SkImageFilter* input, const SkIRect* cropRect)
+  : fInputCount(1),
+    fInputs(new SkImageFilter*[1]),
+    fCropRect(cropRect ? *cropRect : SkIRect::MakeLargest()) {
     fInputs[0] = input;
     SkSafeRef(fInputs[0]);
 }
 
-SkImageFilter::SkImageFilter(SkImageFilter* input1, SkImageFilter* input2)
-  : fInputCount(2), fInputs(new SkImageFilter*[2]) {
+SkImageFilter::SkImageFilter(SkImageFilter* input1, SkImageFilter* input2, const SkIRect* cropRect)
+  : fInputCount(2), fInputs(new SkImageFilter*[2]),
+  fCropRect(cropRect ? *cropRect : SkIRect::MakeLargest()) {
     fInputs[0] = input1;
     fInputs[1] = input2;
     SkSafeRef(fInputs[0]);
@@ -51,6 +61,7 @@ SkImageFilter::SkImageFilter(SkFlattenableReadBuffer& buffer)
             fInputs[i] = NULL;
         }
     }
+    buffer.readIRect(&fCropRect);
 }
 
 void SkImageFilter::flatten(SkFlattenableWriteBuffer& buffer) const {
@@ -62,21 +73,8 @@ void SkImageFilter::flatten(SkFlattenableWriteBuffer& buffer) const {
             buffer.writeFlattenable(input);
         }
     }
+    buffer.writeIRect(fCropRect);
 }
-
-SkBitmap SkImageFilter::getInputResult(int index, Proxy* proxy,
-                                       const SkBitmap& src, const SkMatrix& ctm,
-                                       SkIPoint* loc) {
-    SkASSERT(index < fInputCount);
-    SkImageFilter* input = getInput(index);
-    SkBitmap result;
-    if (input && input->filterImage(proxy, src, ctm, &result, loc)) {
-        return result;
-    } else {
-        return src;
-    }
-}
-
 
 bool SkImageFilter::filterImage(Proxy* proxy, const SkBitmap& src,
                                 const SkMatrix& ctm,
@@ -104,12 +102,69 @@ bool SkImageFilter::onFilterImage(Proxy*, const SkBitmap&, const SkMatrix&,
 }
 
 bool SkImageFilter::canFilterImageGPU() const {
-    return false;
+    return this->asNewEffect(NULL, NULL, SkMatrix::I());
 }
 
-bool SkImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBitmap* result) {
-    SkASSERT(false);  // Should never be called, since canFilterImageGPU() returned false.
+bool SkImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, const SkMatrix& ctm,
+                                   SkBitmap* result, SkIPoint* offset) {
+#if SK_SUPPORT_GPU
+    SkBitmap input;
+    SkASSERT(fInputCount == 1);
+    if (!SkImageFilterUtils::GetInputResultGPU(this->getInput(0), proxy, src, ctm, &input, offset)) {
+        return false;
+    }
+    GrTexture* srcTexture = input.getTexture();
+    SkIRect bounds;
+    src.getBounds(&bounds);
+    if (!this->applyCropRect(&bounds, ctm)) {
+        return false;
+    }
+    SkRect srcRect = SkRect::Make(bounds);
+    SkRect dstRect = SkRect::MakeWH(srcRect.width(), srcRect.height());
+    GrContext* context = srcTexture->getContext();
+
+    GrTextureDesc desc;
+    desc.fFlags = kRenderTarget_GrTextureFlagBit,
+    desc.fWidth = bounds.width();
+    desc.fHeight = bounds.height();
+    desc.fConfig = kRGBA_8888_GrPixelConfig;
+
+    GrAutoScratchTexture dst(context, desc);
+    GrContext::AutoMatrix am;
+    am.setIdentity(context);
+    GrContext::AutoRenderTarget art(context, dst.texture()->asRenderTarget());
+    GrContext::AutoClip acs(context, dstRect);
+    GrEffectRef* effect;
+    SkMatrix matrix(ctm);
+    matrix.postTranslate(SkIntToScalar(-bounds.left()), SkIntToScalar(-bounds.top()));
+    this->asNewEffect(&effect, srcTexture, matrix);
+    SkASSERT(effect);
+    SkAutoUnref effectRef(effect);
+    GrPaint paint;
+    paint.addColorEffect(effect);
+    context->drawRectToRect(paint, dstRect, srcRect);
+
+    SkAutoTUnref<GrTexture> resultTex(dst.detach());
+    SkImageFilterUtils::WrapTexture(resultTex, bounds.width(), bounds.height(), result);
+    offset->fX += bounds.left();
+    offset->fY += bounds.top();
+    return true;
+#else
     return false;
+#endif
+}
+
+bool SkImageFilter::applyCropRect(SkIRect* rect, const SkMatrix& matrix) const {
+    SkRect cropRect;
+    matrix.mapRect(&cropRect, SkRect::Make(fCropRect));
+    SkIRect cropRectI;
+    cropRect.roundOut(&cropRectI);
+    // If the original crop rect edges were unset, max out the new crop edges
+    if (fCropRect.fLeft == SK_MinS32) cropRectI.fLeft = SK_MinS32;
+    if (fCropRect.fTop == SK_MinS32) cropRectI.fTop = SK_MinS32;
+    if (fCropRect.fRight == SK_MaxS32) cropRectI.fRight = SK_MaxS32;
+    if (fCropRect.fBottom == SK_MaxS32) cropRectI.fBottom = SK_MaxS32;
+    return rect->intersect(cropRectI);
 }
 
 bool SkImageFilter::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
@@ -118,7 +173,7 @@ bool SkImageFilter::onFilterBounds(const SkIRect& src, const SkMatrix& ctm,
     return true;
 }
 
-bool SkImageFilter::asNewEffect(GrEffectRef**, GrTexture*) const {
+bool SkImageFilter::asNewEffect(GrEffectRef**, GrTexture*, const SkMatrix&) const {
     return false;
 }
 

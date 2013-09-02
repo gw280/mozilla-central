@@ -1,12 +1,9 @@
-
 /*
  * Copyright 2010 Google Inc.
  *
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-
-
 
 #include "SkGr.h"
 
@@ -24,7 +21,7 @@
 static void build_compressed_data(void* buffer, const SkBitmap& bitmap) {
     SkASSERT(SkBitmap::kIndex8_Config == bitmap.config());
 
-    SkAutoLockPixels apl(bitmap);
+    SkAutoLockPixels alp(bitmap);
     if (!bitmap.readyToDraw()) {
         SkDEBUGFAIL("bitmap not ready to draw!");
         return;
@@ -88,12 +85,6 @@ static GrTexture* sk_gr_create_bitmap_texture(GrContext* ctx,
                                               bool cache,
                                               const GrTextureParams* params,
                                               const SkBitmap& origBitmap) {
-    SkAutoLockPixels alp(origBitmap);
-
-    if (!origBitmap.readyToDraw()) {
-        return NULL;
-    }
-
     SkBitmap tmpBitmap;
 
     const SkBitmap* bitmap = &origBitmap;
@@ -104,10 +95,8 @@ static GrTexture* sk_gr_create_bitmap_texture(GrContext* ctx,
     if (SkBitmap::kIndex8_Config == bitmap->config()) {
         // build_compressed_data doesn't do npot->pot expansion
         // and paletted textures can't be sub-updated
-        if (ctx->supportsIndex8PixelConfig(params,
-                                           bitmap->width(), bitmap->height())) {
-            size_t imagesize = bitmap->width() * bitmap->height() +
-                                kGrColorTableSize;
+        if (ctx->supportsIndex8PixelConfig(params, bitmap->width(), bitmap->height())) {
+            size_t imagesize = bitmap->width() * bitmap->height() + kGrColorTableSize;
             SkAutoMalloc storage(imagesize);
 
             build_compressed_data(storage.get(), origBitmap);
@@ -135,6 +124,10 @@ static GrTexture* sk_gr_create_bitmap_texture(GrContext* ctx,
         }
     }
 
+    SkAutoLockPixels alp(*bitmap);
+    if (!bitmap->readyToDraw()) {
+        return NULL;
+    }
     if (cache) {
         // This texture is likely to be used again so leave it in the cache
         GrCacheID cacheID;
@@ -196,7 +189,7 @@ GrTexture* GrLockAndRefCachedBitmapTexture(GrContext* ctx,
 }
 
 void GrUnlockAndUnrefCachedBitmapTexture(GrTexture* texture) {
-    GrAssert(NULL != texture->getContext());
+    SkASSERT(NULL != texture->getContext());
 
     texture->getContext()->unlockScratchTexture(texture);
     texture->unref();
@@ -217,7 +210,7 @@ GrPixelConfig SkBitmapConfig2GrPixelConfig(SkBitmap::Config config) {
         case SkBitmap::kARGB_8888_Config:
             return kSkia8888_GrPixelConfig;
         default:
-            // kNo_Config, kA1_Config missing, and kRLE_Index8_Config
+            // kNo_Config, kA1_Config missing
             return kUnknown_GrPixelConfig;
     }
 }

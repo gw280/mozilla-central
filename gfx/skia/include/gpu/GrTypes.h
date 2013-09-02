@@ -74,7 +74,7 @@ template <typename T> const T& GrMax(const T& a, const T& b) {
  *  divide, rounding up
  */
 static inline int32_t GrIDivRoundUp(int x, int y) {
-    GrAssert(y > 0);
+    SkASSERT(y > 0);
     return (x + (y-1)) / y;
 }
 static inline uint32_t GrUIDivRoundUp(uint32_t x, uint32_t y) {
@@ -152,7 +152,7 @@ static inline uint32_t GrNextPow2(uint32_t n) {
 }
 
 static inline int GrNextPow2(int n) {
-    GrAssert(n >= 0); // this impl only works for non-neg.
+    SkASSERT(n >= 0); // this impl only works for non-neg.
     return n ? (1 << (32 - SkCLZ(n - 1))) : 1;
 }
 
@@ -163,10 +163,10 @@ static inline int GrNextPow2(int n) {
  */
 typedef int32_t GrFixed;
 
-#if GR_DEBUG
+#ifdef SK_DEBUG
 
 static inline int16_t GrToS16(intptr_t x) {
-    GrAssert((int16_t)x == x);
+    SkASSERT((int16_t)x == x);
     return (int16_t)x;
 }
 
@@ -256,7 +256,7 @@ enum GrMaskFormat {
  *  Return the number of bytes-per-pixel for the specified mask format.
  */
 static inline int GrMaskFormatBytesPerPixel(GrMaskFormat format) {
-    GrAssert((unsigned)format <= 2);
+    SkASSERT((unsigned)format <= 2);
     // kA8   (0) -> 1
     // kA565 (1) -> 2
     // kA888 (2) -> 4
@@ -379,6 +379,11 @@ enum GrTextureFlags {
      * Hint that the CPU may modify this texture after creation.
      */
     kDynamicUpdate_GrTextureFlagBit = 0x4,
+    /**
+     * Indicates that all allocations (color buffer, FBO completeness, etc)
+     * should be verified.
+     */
+    kCheckAllocation_GrTextureFlagBit  = 0x8,
 
     kDummy_GrTextureFlagBit,
     kLastPublic_GrTextureFlagBit = kDummy_GrTextureFlagBit-1,
@@ -467,7 +472,7 @@ public:
      * Initialize the cache ID to a domain and key.
      */
     GrCacheID(Domain domain, const Key& key) {
-        GrAssert(kInvalid_Domain != domain);
+        SkASSERT(kInvalid_Domain != domain);
         this->reset(domain, key);
     }
 
@@ -479,8 +484,8 @@ public:
     /** Has this been initialized to a valid domain */
     bool isValid() const { return kInvalid_Domain != fDomain; }
 
-    const Key& getKey() const { GrAssert(this->isValid()); return fKey; }
-    Domain getDomain() const { GrAssert(this->isValid()); return fDomain; }
+    const Key& getKey() const { SkASSERT(this->isValid()); return fKey; }
+    Domain getDomain() const { SkASSERT(this->isValid()); return fDomain; }
 
     /** Creates a new unique ID domain. */
     static Domain GenerateDomain();
@@ -499,39 +504,6 @@ enum GrClipType {
     kRect_ClipType,
     kPath_ClipType
 };
-
-/**
- * Commands used to describe a path. Each command
- * is accompanied by some number of points.
- */
-enum GrPathCmd {
-    kMove_PathCmd,      //!< Starts a new subpath at
-                        //   at the returned point
-                        // 1 point
-    kLine_PathCmd,      //!< Adds a line segment
-                        // 2 points
-    kQuadratic_PathCmd, //!< Adds a quadratic segment
-                        // 3 points
-    kCubic_PathCmd,     //!< Adds a cubic segment
-                        // 4 points
-    kClose_PathCmd,     //!< Closes the current subpath
-                        //   by connecting a line to the
-                        //   starting point.
-                        // 0 points
-    kEnd_PathCmd        //!< Indicates the end of the last subpath
-                        //   when iterating
-                        // 0 points.
-};
-
-/**
- * Gets the number of points associated with a path command.
- */
-static int inline NumPathCmdPoints(GrPathCmd cmd) {
-    static const int gNumPoints[] = {
-        1, 2, 3, 4, 0, 0
-    };
-    return gNumPoints[cmd];
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -627,6 +599,31 @@ struct GrBackendRenderTargetDesc {
      */
     GrBackendObject                 fRenderTargetHandle;
 };
+
+/**
+ * The GrContext's cache of backend context state can be partially invalidated.
+ * These enums are specific to the GL backend and we'd add a new set for an alternative backend.
+ */
+enum GrGLBackendState {
+    kRenderTarget_GrGLBackendState     = 1 << 0,
+    kTextureBinding_GrGLBackendState   = 1 << 1,
+    // View state stands for scissor and viewport
+    kView_GrGLBackendState             = 1 << 2,
+    kBlend_GrGLBackendState            = 1 << 3,
+    kAA_GrGLBackendState               = 1 << 4,
+    kVertex_GrGLBackendState           = 1 << 5,
+    kStencil_GrGLBackendState          = 1 << 6,
+    kPixelStore_GrGLBackendState       = 1 << 7,
+    kProgram_GrGLBackendState          = 1 << 8,
+    kFixedFunction_GrGLBackendState    = 1 << 9,
+    kMisc_GrGLBackendState             = 1 << 10,
+    kALL_GrGLBackendState              = 0xffff
+};
+
+/**
+ * This value translates to reseting all the context state for any backend.
+ */
+static const uint32_t kAll_GrBackendState = 0xffffffff;
 
 ///////////////////////////////////////////////////////////////////////////////
 

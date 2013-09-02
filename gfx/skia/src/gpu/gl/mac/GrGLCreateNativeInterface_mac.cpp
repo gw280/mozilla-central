@@ -84,9 +84,11 @@ const GrGLInterface* GrGLCreateNativeInterface() {
         GET_PROC(Clear);
         GET_PROC(ClearColor);
         GET_PROC(ClearStencil);
+        GET_PROC(ClientActiveTexture);
         GET_PROC(ColorMask);
         GET_PROC(CompileShader);
         GET_PROC(CompressedTexImage2D);
+        GET_PROC(CopyTexSubImage2D);
         GET_PROC(CreateProgram);
         GET_PROC(CreateShader);
         GET_PROC(CullFace);
@@ -97,18 +99,21 @@ const GrGLInterface* GrGLCreateNativeInterface() {
         GET_PROC(DeleteTextures);
         GET_PROC(DepthMask);
         GET_PROC(Disable);
+        GET_PROC(DisableClientState);
         GET_PROC(DisableVertexAttribArray);
         GET_PROC(DrawArrays);
         GET_PROC(DrawBuffer);
         GET_PROC(DrawBuffers);
         GET_PROC(DrawElements);
         GET_PROC(Enable);
+        GET_PROC(EnableClientState);
         GET_PROC(EnableVertexAttribArray);
         GET_PROC(EndQuery);
         GET_PROC(Finish);
         GET_PROC(Flush);
         GET_PROC(FrontFace);
         GET_PROC(GenBuffers);
+        GET_PROC(GenerateMipmap);
         GET_PROC(GenQueries);
         GET_PROC(GetBufferParameteriv);
         GET_PROC(GetError);
@@ -127,7 +132,10 @@ const GrGLInterface* GrGLCreateNativeInterface() {
         GET_PROC(GetUniformLocation);
         GET_PROC(LineWidth);
         GET_PROC(LinkProgram);
+        GET_PROC(LoadIdentity);
+        GET_PROC(LoadMatrixf);
         GET_PROC(MapBuffer);
+        GET_PROC(MatrixMode);
         GET_PROC(PixelStorei);
         GET_PROC(ReadBuffer);
         GET_PROC(ReadPixels);
@@ -139,6 +147,9 @@ const GrGLInterface* GrGLCreateNativeInterface() {
         GET_PROC(StencilMaskSeparate);
         GET_PROC(StencilOp);
         GET_PROC(StencilOpSeparate);
+        GET_PROC(TexGenf);
+        GET_PROC(TexGenfv);
+        GET_PROC(TexGeni);
         GET_PROC(TexImage2D);
         GET_PROC(TexParameteri);
         GET_PROC(TexParameteriv);
@@ -172,6 +183,7 @@ const GrGLInterface* GrGLCreateNativeInterface() {
         GET_PROC(UseProgram);
         GET_PROC(VertexAttrib4fv);
         GET_PROC(VertexAttribPointer);
+        GET_PROC(VertexPointer);
         GET_PROC(Viewport);
 
         if (ver >= GR_GL_VER(3,0) || extensions.has("GL_ARB_vertex_array_object")) {

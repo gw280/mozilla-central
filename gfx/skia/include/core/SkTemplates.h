@@ -46,6 +46,24 @@ template <typename T> struct SkTConstType<T, true> {
 };
 ///@}
 
+/**
+ *  Returns a pointer to a D which comes immediately after S[count].
+ */
+template <typename D, typename S> static D* SkTAfter(S* ptr, size_t count = 1) {
+    return reinterpret_cast<D*>(ptr + count);
+}
+
+/**
+ *  Returns a pointer to a D which comes byteOffset bytes after S.
+ */
+template <typename D, typename S> static D* SkTAddOffset(S* ptr, size_t byteOffset) {
+    // The intermediate char* has the same const-ness as D as this produces better error messages.
+    // This relies on the fact that reinterpret_cast can add constness, but cannot remove it.
+    return reinterpret_cast<D*>(
+        reinterpret_cast<typename SkTConstType<char, SkTIsConst<D>::value>::type*>(ptr) + byteOffset
+    );
+}
+
 /** \class SkAutoTCallVProc
 
     Call a function when this goes out of scope. The template uses two
@@ -80,21 +98,37 @@ private:
     T* fObj;
 };
 
-// See also SkTScopedPtr.
+/** \class SkAutoTDelete
+  An SkAutoTDelete<T> is like a T*, except that the destructor of SkAutoTDelete<T>
+  automatically deletes the pointer it holds (if any).  That is, SkAutoTDelete<T>
+  owns the T object that it points to.  Like a T*, an SkAutoTDelete<T> may hold
+  either NULL or a pointer to a T object.  Also like T*, SkAutoTDelete<T> is
+  thread-compatible, and once you dereference it, you get the threadsafety
+  guarantees of T.
+
+  The size of a SkAutoTDelete is small: sizeof(SkAutoTDelete<T>) == sizeof(T*)
+*/
 template <typename T> class SkAutoTDelete : SkNoncopyable {
 public:
-    SkAutoTDelete(T* obj) : fObj(obj) {}
-    ~SkAutoTDelete() { delete fObj; }
+    SkAutoTDelete(T* obj = NULL) : fObj(obj) {}
+    ~SkAutoTDelete() { SkDELETE(fObj); }
 
     T* get() const { return fObj; }
     T& operator*() const { SkASSERT(fObj); return *fObj; }
     T* operator->() const { SkASSERT(fObj); return fObj; }
 
+    void reset(T* obj) {
+        if (fObj != obj) {
+            SkDELETE(fObj);
+            fObj = obj;
+        }
+    }
+
     /**
      *  Delete the owned object, setting the internal pointer to NULL.
      */
     void free() {
-        delete fObj;
+        SkDELETE(fObj);
         fObj = NULL;
     }
 
@@ -108,6 +142,24 @@ public:
         fObj = NULL;
         return obj;
     }
+
+private:
+    T*  fObj;
+};
+
+// Calls ~T() in the destructor.
+template <typename T> class SkAutoTDestroy : SkNoncopyable {
+public:
+    SkAutoTDestroy(T* obj = NULL) : fObj(obj) {}
+    ~SkAutoTDestroy() {
+        if (NULL != fObj) {
+            fObj->~T();
+        }
+    }
+
+    T* get() const { return fObj; }
+    T& operator*() const { SkASSERT(fObj); return *fObj; }
+    T* operator->() const { SkASSERT(fObj); return fObj; }
 
 private:
     T*  fObj;
@@ -140,7 +192,7 @@ public:
         SkASSERT(count >= 0);
         fArray = NULL;
         if (count) {
-            fArray = new T[count];
+            fArray = SkNEW_ARRAY(T, count);
         }
         SkDEBUGCODE(fCount = count;)
     }
@@ -148,17 +200,17 @@ public:
     /** Reallocates given a new count. Reallocation occurs even if new count equals old count.
      */
     void reset(int count) {
-        delete[] fArray;
+        SkDELETE_ARRAY(fArray);
         SkASSERT(count >= 0);
         fArray = NULL;
         if (count) {
-            fArray = new T[count];
+            fArray = SkNEW_ARRAY(T, count);
         }
         SkDEBUGCODE(fCount = count;)
     }
 
     ~SkAutoTArray() {
-        delete[] fArray;
+        SkDELETE_ARRAY(fArray);
     }
 
     /** Return the array of T elements. Will be NULL if count == 0
@@ -181,28 +233,54 @@ private:
  */
 template <size_t N, typename T> class SkAutoSTArray : SkNoncopyable {
 public:
+    /** Initialize with no objects */
+    SkAutoSTArray() {
+        fArray = NULL;
+        fCount = 0;
+    }
+
     /** Allocate count number of T elements
      */
     SkAutoSTArray(size_t count) {
-        if (count > N) {
-            fArray = new T[count];
-        } else if (count) {
-            fArray = new (fStorage) T[count];
-        } else {
-            fArray = NULL;
-        }
-        fCount = count;
+        fArray = NULL;
+        fCount = 0;
+        this->reset(count);
     }
 
     ~SkAutoSTArray() {
-        if (fCount > N) {
-            delete[] fArray;
-        } else {
-            T* start = fArray;
-            T* iter = start + fCount;
-            while (iter > start) {
-                (--iter)->~T();
+        this->reset(0);
+    }
+
+    /** Destroys previous objects in the array and default constructs count number of objects */
+    void reset(size_t count) {
+        T* start = fArray;
+        T* iter = start + fCount;
+        while (iter > start) {
+            (--iter)->~T();
+        }
+
+        if (fCount != count) {
+            if (fCount > N) {
+                // 'fArray' was allocated last time so free it now
+                SkASSERT((T*) fStorage != fArray);
+                sk_free(fArray);
             }
+
+            if (count > N) {
+                fArray = (T*) sk_malloc_throw(count * sizeof(T));
+            } else if (count > 0) {
+                fArray = (T*) fStorage;
+            } else {
+                fArray = NULL;
+            }
+
+            fCount = count;
+        }
+
+        iter = fArray;
+        T* stop = fArray + count;
+        while (iter < stop) {
+            SkNEW_PLACEMENT(iter++, T);
         }
     }
 
@@ -228,12 +306,18 @@ private:
     char    fStorage[N * sizeof(T)];
 };
 
-/** Allocate a temp array on the stack/heap.
-    Does NOT call any constructors/destructors on T (i.e. T must be POD)
-*/
+/** Manages an array of T elements, freeing the array in the destructor.
+ *  Does NOT call any constructors/destructors on T (T must be POD).
+ */
 template <typename T> class SkAutoTMalloc : SkNoncopyable {
 public:
-    SkAutoTMalloc(size_t count) {
+    /** Takes ownership of the ptr. The ptr must be a value which can be passed to sk_free. */
+    explicit SkAutoTMalloc(T* ptr = NULL) {
+        fPtr = ptr;
+    }
+
+    /** Allocates space for 'count' Ts. */
+    explicit SkAutoTMalloc(size_t count) {
         fPtr = (T*)sk_malloc_flags(count * sizeof(T), SK_MALLOC_THROW | SK_MALLOC_TEMP);
     }
 
@@ -241,10 +325,15 @@ public:
         sk_free(fPtr);
     }
 
-    // doesn't preserve contents
-    void reset (size_t count) {
+    /** Resize the memory area pointed to by the current ptr preserving contents. */
+    void realloc(size_t count) {
+        fPtr = reinterpret_cast<T*>(sk_realloc_throw(fPtr, count * sizeof(T)));
+    }
+
+    /** Resize the memory area pointed to by the current ptr without preserving contents. */
+    void reset(size_t count) {
         sk_free(fPtr);
-        fPtr = fPtr = (T*)sk_malloc_flags(count * sizeof(T), SK_MALLOC_THROW | SK_MALLOC_TEMP);
+        fPtr = (T*)sk_malloc_flags(count * sizeof(T), SK_MALLOC_THROW | SK_MALLOC_TEMP);
     }
 
     T* get() const { return fPtr; }
@@ -265,17 +354,34 @@ public:
         return fPtr[index];
     }
 
+    /**
+     *  Transfer ownership of the ptr to the caller, setting the internal
+     *  pointer to NULL. Note that this differs from get(), which also returns
+     *  the pointer, but it does not transfer ownership.
+     */
+    T* detach() {
+        T* ptr = fPtr;
+        fPtr = NULL;
+        return ptr;
+    }
+
 private:
-    T*  fPtr;
+    T* fPtr;
 };
 
 template <size_t N, typename T> class SK_API SkAutoSTMalloc : SkNoncopyable {
 public:
+    SkAutoSTMalloc() {
+        fPtr = NULL;
+    }
+
     SkAutoSTMalloc(size_t count) {
-        if (count <= N) {
+        if (count > N) {
+            fPtr = (T*)sk_malloc_flags(count * sizeof(T), SK_MALLOC_THROW | SK_MALLOC_TEMP);
+        } else if (count) {
             fPtr = fTStorage;
         } else {
-            fPtr = (T*)sk_malloc_flags(count * sizeof(T), SK_MALLOC_THROW | SK_MALLOC_TEMP);
+            fPtr = NULL;
         }
     }
 
@@ -286,15 +392,18 @@ public:
     }
 
     // doesn't preserve contents
-    void reset(size_t count) {
+    T* reset(size_t count) {
         if (fPtr != fTStorage) {
             sk_free(fPtr);
         }
-        if (count <= N) {
+        if (count > N) {
+            fPtr = (T*)sk_malloc_flags(count * sizeof(T), SK_MALLOC_THROW | SK_MALLOC_TEMP);
+        } else if (count) {
             fPtr = fTStorage;
         } else {
-            fPtr = (T*)sk_malloc_flags(count * sizeof(T), SK_MALLOC_THROW | SK_MALLOC_TEMP);
+            fPtr = NULL;
         }
+        return fPtr;
     }
 
     T* get() const { return fPtr; }

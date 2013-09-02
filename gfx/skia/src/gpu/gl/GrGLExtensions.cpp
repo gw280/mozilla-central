@@ -13,8 +13,8 @@
 #include "SkTSort.h"
 
 namespace {
-inline int extension_compare(const SkString* a, const SkString* b) {
-    return strcmp(a->c_str(), b->c_str());
+inline bool extension_compare(const SkString& a, const SkString& b) {
+    return strcmp(a.c_str(), b.c_str()) < 0;
 }
 }
 
@@ -26,15 +26,15 @@ bool GrGLExtensions::init(GrGLBinding binding,
     if (NULL == getString) {
         return false;
     }
-    bool indexed = false;
-    if (kDesktop_GrGLBinding == binding) {
-        const GrGLubyte* verString = getString(GR_GL_VERSION);
-        if (NULL == verString) {
-            return false;
-        }
-        GrGLVersion version = GrGLGetVersionFromString((const char*) verString);
-        indexed = version >= GR_GL_VER(3, 0);
+
+    // glGetStringi and indexed extensions were added in version 3.0 of desktop GL and ES.
+    const GrGLubyte* verString = getString(GR_GL_VERSION);
+    if (NULL == verString) {
+        return false;
     }
+    GrGLVersion version = GrGLGetVersionFromString((const char*) verString);
+    bool indexed = version >= GR_GL_VER(3, 0);
+
     if (indexed) {
         if (NULL == getStringi || NULL == getIntegerv) {
             return false;
@@ -66,18 +66,31 @@ bool GrGLExtensions::init(GrGLBinding binding,
             extensions += length;
         }
     }
-    if (0 != fStrings.count()) {
-        SkTSearchCompareLTFunctor<SkString, extension_compare> cmp;
+    if (!fStrings.empty()) {
+        SkTLessFunctionToFunctorAdaptor<SkString, extension_compare> cmp;
         SkTQSort(&fStrings.front(), &fStrings.back(), cmp);
     }
     return true;
 }
 
 bool GrGLExtensions::has(const char* ext) const {
+    if (fStrings.empty()) {
+        return false;
+    }
     SkString extensionStr(ext);
     int idx = SkTSearch<SkString, extension_compare>(&fStrings.front(),
                                                      fStrings.count(),
                                                      extensionStr,
                                                      sizeof(SkString));
     return idx >= 0;
+}
+
+void GrGLExtensions::print(const char* sep) const {
+    if (NULL == sep) {
+        sep = " ";
+    }
+    int cnt = fStrings.count();
+    for (int i = 0; i < cnt; ++i) {
+        GrPrintf("%s%s", fStrings[i].c_str(), (i < cnt - 1) ? sep : "");
+    }
 }

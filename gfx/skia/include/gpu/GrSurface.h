@@ -11,6 +11,7 @@
 
 #include "GrTypes.h"
 #include "GrResource.h"
+#include "SkRect.h"
 
 class GrTexture;
 class GrRenderTarget;
@@ -33,8 +34,14 @@ public:
      */
     int height() const { return fDesc.fHeight; }
 
+    /**
+     * Helper that gets the width and height of the surface as a bounding rectangle.
+     */
+    void getBoundsRect(SkRect* rect) const { rect->setWH(SkIntToScalar(this->width()),
+                                                         SkIntToScalar(this->height())); }
+
     GrSurfaceOrigin origin() const {
-        GrAssert(kTopLeft_GrSurfaceOrigin == fDesc.fOrigin || kBottomLeft_GrSurfaceOrigin == fDesc.fOrigin);
+        SkASSERT(kTopLeft_GrSurfaceOrigin == fDesc.fOrigin || kBottomLeft_GrSurfaceOrigin == fDesc.fOrigin);
         return fDesc.fOrigin;
     }
 
@@ -62,6 +69,22 @@ public:
      */
     virtual GrRenderTarget* asRenderTarget() = 0;
     virtual const GrRenderTarget* asRenderTarget() const = 0;
+
+    /**
+     * Checks whether this GrSurface refers to the same GPU object as other. This
+     * catches the case where a GrTexture and GrRenderTarget refer to the same
+     * GPU memory.
+     */
+    bool isSameAs(const GrSurface* other) const {
+        const GrRenderTarget* thisRT = this->asRenderTarget();
+        if (NULL != thisRT) {
+            return thisRT == other->asRenderTarget();
+        } else {
+            const GrTexture* thisTex = this->asTexture();
+            SkASSERT(NULL != thisTex); // We must be one or the other
+            return thisTex == other->asTexture();
+        }
+    }
 
     /**
      * Reads a rectangle of pixels from the surface.

@@ -1,4 +1,3 @@
-
 /*
  * Copyright 2006 The Android Open Source Project
  *
@@ -6,10 +5,10 @@
  * found in the LICENSE file.
  */
 
-
+#include "SkColorPriv.h"
 #include "SkImageDecoder.h"
 #include "SkStream.h"
-#include "SkColorPriv.h"
+#include "SkStreamHelpers.h"
 #include "SkTypes.h"
 
 class SkICOImageDecoder : public SkImageDecoder {
@@ -75,12 +74,13 @@ static int calculateRowBytesFor8888(int w, int bitCount)
 
 bool SkICOImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode)
 {
-    size_t length = stream->getLength();
-    SkAutoMalloc autoMal(length);
-    unsigned char* buf = (unsigned char*)autoMal.get();
-    if (stream->read((void*)buf, length) != length) {
+    SkAutoMalloc autoMal;
+    const size_t length = CopyStreamToStorage(&autoMal, stream);
+    if (0 == length) {
         return false;
     }
+
+    unsigned char* buf = (unsigned char*)autoMal.get();
 
     //these should always be the same - should i use for error checking? - what about files that have some
     //incorrect values, but still decode properly?
@@ -152,6 +152,20 @@ bool SkICOImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode)
     int offset = read4Bytes(buf, 18 + choice*16);
     if ((size_t)(offset + size) > length)
         return false;
+
+    // Check to see if this is a PNG image inside the ICO
+    {
+        SkMemoryStream subStream(buf + offset, size, false);
+        SkAutoTDelete<SkImageDecoder> otherDecoder(SkImageDecoder::Factory(&subStream));
+        if (otherDecoder.get() != NULL) {
+            // Set fields on the other decoder to be the same as this one.
+            this->copyFieldsToOther(otherDecoder.get());
+            if(otherDecoder->decode(&subStream, bm, this->getDefaultPref(), mode)) {
+                return true;
+            }
+        }
+    }
+
     //int infoSize = read4Bytes(buf, offset);             //40
     //int width = read4Bytes(buf, offset+4);              //should == w
     //int height = read4Bytes(buf, offset+8);             //should == 2*h
@@ -232,16 +246,12 @@ bool SkICOImageDecoder::onDecode(SkStream* stream, SkBitmap* bm, Mode mode)
     //if the andbitmap (mask) is all zeroes, then we can easily do an index bitmap
     //however, with small images with large colortables, maybe it's better to still do argb_8888
 
+    bm->setConfig(SkBitmap::kARGB_8888_Config, w, h, calculateRowBytesFor8888(w, bitCount));
+
     if (SkImageDecoder::kDecodeBounds_Mode == mode) {
-        bm->setConfig(SkBitmap::kARGB_8888_Config, w, h, calculateRowBytesFor8888(w, bitCount));
         delete[] colors;
         return true;
     }
-    // No Bitmap reuse supported for this format
-    if (!bm->isNull()) {
-        return false;
-    }
-    bm->setConfig(SkBitmap::kARGB_8888_Config, w, h, calculateRowBytesFor8888(w, bitCount));
 
     if (!this->allocPixelRef(bm, NULL))
     {
@@ -373,9 +383,7 @@ static void editPixelBit32(const int pixelNo, const unsigned char* buf,
 DEFINE_DECODER_CREATOR(ICOImageDecoder);
 /////////////////////////////////////////////////////////////////////////////////////////
 
-#include "SkTRegistry.h"
-
-static SkImageDecoder* sk_libico_dfactory(SkStream* stream) {
+static bool is_ico(SkStream* stream) {
     // Check to see if the first four bytes are 0,0,1,0
     // FIXME: Is that required and sufficient?
     SkAutoMalloc autoMal(4);
@@ -385,9 +393,27 @@ static SkImageDecoder* sk_libico_dfactory(SkStream* stream) {
     int type = read2Bytes(buf, 2);
     if (reserved != 0 || type != 1) {
         // This stream does not represent an ICO image.
-        return NULL;
+        return false;
     }
-    return SkNEW(SkICOImageDecoder);
+    return true;
+}
+
+#include "SkTRegistry.h"
+
+static SkImageDecoder* sk_libico_dfactory(SkStream* stream) {
+    if (is_ico(stream)) {
+        return SkNEW(SkICOImageDecoder);
+    }
+    return NULL;
 }
 
 static SkTRegistry<SkImageDecoder*, SkStream*> gReg(sk_libico_dfactory);
+
+static SkImageDecoder::Format get_format_ico(SkStream* stream) {
+    if (is_ico(stream)) {
+        return SkImageDecoder::kICO_Format;
+    }
+    return SkImageDecoder::kUnknown_Format;
+}
+
+static SkTRegistry<SkImageDecoder::Format, SkStream*> gFormatReg(get_format_ico);

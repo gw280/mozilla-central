@@ -22,7 +22,7 @@
 #include "SkXfermode.h"
 
 class SkBounder;
-class SkDevice;
+class SkBaseDevice;
 class SkDraw;
 class SkDrawFilter;
 class SkMetaData;
@@ -55,7 +55,7 @@ public:
 
         @param device   Specifies a device for the canvas to draw into.
     */
-    explicit SkCanvas(SkDevice* device);
+    explicit SkCanvas(SkBaseDevice* device);
 
     /** Deprecated - Construct a canvas with the specified bitmap to draw into.
         @param bitmap   Specifies a bitmap for the canvas to draw into. Its
@@ -84,7 +84,7 @@ public:
         the bitmap of the pixels that the canvas draws into. The reference count
         of the returned device is not changed by this call.
     */
-    SkDevice* getDevice() const;
+    SkBaseDevice* getDevice() const;
 
     /**
      *  saveLayer() can create another device (which is later drawn onto
@@ -99,15 +99,15 @@ public:
      *        is drawn to, but is optional here, as there is a small perf hit
      *        sometimes.
      */
-    SkDevice* getTopDevice(bool updateMatrixClip = false) const;
+    SkBaseDevice* getTopDevice(bool updateMatrixClip = false) const;
 
     /**
      *  Shortcut for getDevice()->createCompatibleDevice(...).
      *  If getDevice() == NULL, this method does nothing, and returns NULL.
      */
-    SkDevice* createCompatibleDevice(SkBitmap::Config config,
-                                    int width, int height,
-                                    bool isOpaque);
+    SkBaseDevice* createCompatibleDevice(SkBitmap::Config config,
+                                         int width, int height,
+                                         bool isOpaque);
 
     ///////////////////////////////////////////////////////////////////////////
 
@@ -239,6 +239,12 @@ public:
         operate on this copy.
         When the balancing call to restore() is made, the previous matrix, clip,
         and drawFilter are restored.
+        @param flags The flags govern what portion of the Matrix/Clip/drawFilter
+                     state the save (and matching restore) effect. For example,
+                     if only kMatrix is specified, then only the matrix state
+                     will be pushed and popped. Likewise for the clip if kClip
+                     is specified.  However, the drawFilter is always affected
+                     by calls to save/restore.
         @return The value to pass to restoreToCount() to balance this save()
     */
     virtual int save(SaveFlags flags = kMatrixClip_SaveFlag);
@@ -379,6 +385,13 @@ public:
      */
     void setAllowSoftClip(bool allow) {
         fAllowSoftClip = allow;
+    }
+
+    /** EXPERIMENTAL -- only used for testing
+        Set to simplify clip stack using path ops.
+     */
+    void setAllowSimplifyClip(bool allow) {
+        fAllowSimplifyClip = allow;
     }
 
     /** Modify the current clip with the specified region. Note that unlike
@@ -660,6 +673,16 @@ public:
     virtual void drawBitmap(const SkBitmap& bitmap, SkScalar left, SkScalar top,
                             const SkPaint* paint = NULL);
 
+    enum DrawBitmapRectFlags {
+        kNone_DrawBitmapRectFlag            = 0x0,
+        /**
+         *  When filtering is enabled, allow the color samples outside of
+         *  the src rect (but still in the src bitmap) to bleed into the
+         *  drawn portion
+         */
+        kBleed_DrawBitmapRectFlag           = 0x1,
+    };
+
     /** Draw the specified bitmap, with the specified matrix applied (before the
         canvas' matrix is applied).
         @param bitmap   The bitmap to be drawn
@@ -670,22 +693,24 @@ public:
     */
     virtual void drawBitmapRectToRect(const SkBitmap& bitmap, const SkRect* src,
                                       const SkRect& dst,
-                                      const SkPaint* paint);
+                                      const SkPaint* paint = NULL,
+                                      DrawBitmapRectFlags flags = kNone_DrawBitmapRectFlag);
 
     void drawBitmapRect(const SkBitmap& bitmap, const SkRect& dst,
-                        const SkPaint* paint) {
-        this->drawBitmapRectToRect(bitmap, NULL, dst, paint);
+                        const SkPaint* paint = NULL) {
+        this->drawBitmapRectToRect(bitmap, NULL, dst, paint, kNone_DrawBitmapRectFlag);
     }
 
     void drawBitmapRect(const SkBitmap& bitmap, const SkIRect* isrc,
-                        const SkRect& dst, const SkPaint* paint = NULL) {
+                        const SkRect& dst, const SkPaint* paint = NULL,
+                        DrawBitmapRectFlags flags = kNone_DrawBitmapRectFlag) {
         SkRect realSrcStorage;
         SkRect* realSrcPtr = NULL;
         if (isrc) {
             realSrcStorage.set(*isrc);
             realSrcPtr = &realSrcStorage;
         }
-        this->drawBitmapRectToRect(bitmap, realSrcPtr, dst, paint);
+        this->drawBitmapRectToRect(bitmap, realSrcPtr, dst, paint, flags);
     }
 
     virtual void drawBitmapMatrix(const SkBitmap& bitmap, const SkMatrix& m,
@@ -698,9 +723,9 @@ public:
      *  bitmap is the "center", then the center-rect should be [2, 2, 3, 3].
      *
      *  If the dst is >= the bitmap size, then...
-     *  - The 4 corners are not stretch at all.
-     *  - The sides are stretch in only one axis.
-     *  - The center is stretch in both axes.
+     *  - The 4 corners are not stretched at all.
+     *  - The sides are stretched in only one axis.
+     *  - The center is stretched in both axes.
      * Else, for each axis where dst < bitmap,
      *  - The corners shrink proportionally
      *  - The sides (along the shrink axis) and center are not drawn
@@ -821,7 +846,7 @@ public:
                     corresponding texs and colors arrays if non-null)
         @param vertices Array of vertices for the mesh
         @param texs May be null. If not null, specifies the coordinate
-                             in texture space for each vertex.
+                    in _texture_ space (not uv space) for each vertex.
         @param colors May be null. If not null, specifies a color for each
                       vertex, to be interpolated across the triangle.
         @param xmode Used if both texs and colors are present. In this
@@ -845,7 +870,24 @@ public:
         subclasses like SkPicture's recording canvas, that can store the data
         and then play it back later (via another call to drawData).
      */
-    virtual void drawData(const void* data, size_t length);
+    virtual void drawData(const void* data, size_t length) {
+        // do nothing. Subclasses may do something with the data
+    }
+
+    /** Add comments. beginCommentGroup/endCommentGroup open/close a new group.
+        Each comment added via addComment is notionally attached to its
+        enclosing group. Top-level comments simply belong to no group.
+     */
+    virtual void beginCommentGroup(const char* description) {
+        // do nothing. Subclasses may do something
+    }
+    virtual void addComment(const char* kywd, const char* value) {
+        // do nothing. Subclasses may do something
+    }
+    virtual void endCommentGroup() {
+        // do nothing. Subclasses may do something
+    }
+
 
     //////////////////////////////////////////////////////////////////////////
 
@@ -952,7 +994,7 @@ public:
 
         // These reflect the current device in the iterator
 
-        SkDevice*       device() const;
+        SkBaseDevice*   device() const;
         const SkMatrix& matrix() const;
         const SkRegion& clip() const;
         const SkPaint&  paint() const;
@@ -978,14 +1020,15 @@ protected:
     // is not released or deleted by the caller.
     virtual SkCanvas* canvasForDrawIter();
 
-    // all of the drawBitmap variants call this guy
-    void commonDrawBitmap(const SkBitmap&, const SkIRect*, const SkMatrix&,
-                          const SkPaint& paint);
-
     // Clip rectangle bounds. Called internally by saveLayer.
     // returns false if the entire rectangle is entirely clipped out
     bool clipRectBounds(const SkRect* bounds, SaveFlags flags,
                         SkIRect* intersection);
+
+    // Called by child classes that override clipPath and clipRRect to only
+    // track fast conservative clip bounds, rather than exact clips.
+    bool updateClipConservativelyUsingBounds(const SkRect&, SkRegion::Op,
+                                             bool inverseFilled);
 
     // notify our surface (if we have one) that we are about to draw, so it
     // can perform copy-on-write or invalidate any cached images
@@ -1000,7 +1043,7 @@ protected:
      reference count is incremented. If the canvas was already holding a
      device, its reference count is decremented. The new device is returned.
      */
-    virtual SkDevice* setDevice(SkDevice* device);
+    virtual SkBaseDevice* setDevice(SkBaseDevice* device);
 
 private:
     class MCRec;
@@ -1023,6 +1066,7 @@ private:
         fSurfaceBase = sb;
     }
     friend class SkSurface_Base;
+    friend class SkSurface_Gpu;
 
     bool fDeviceCMDirty;            // cleared by updateDeviceCMCache()
     void updateDeviceCMCache();
@@ -1030,23 +1074,23 @@ private:
     friend class SkDrawIter;    // needs setupDrawForLayerDevice()
     friend class AutoDrawLooper;
 
-    SkDevice* createLayerDevice(SkBitmap::Config, int width, int height,
-                                bool isOpaque);
+    SkBaseDevice* createLayerDevice(SkBitmap::Config, int width, int height,
+                                    bool isOpaque);
 
-    SkDevice* init(SkDevice*);
+    SkBaseDevice* init(SkBaseDevice*);
 
     // internal methods are not virtual, so they can safely be called by other
     // canvas apis, without confusing subclasses (like SkPictureRecording)
-    void internalDrawBitmap(const SkBitmap&, const SkIRect*, const SkMatrix& m,
-                                  const SkPaint* paint);
+    void internalDrawBitmap(const SkBitmap&, const SkMatrix& m, const SkPaint* paint);
     void internalDrawBitmapRect(const SkBitmap& bitmap, const SkRect* src,
-                                const SkRect& dst, const SkPaint* paint);
+                                const SkRect& dst, const SkPaint* paint,
+                                DrawBitmapRectFlags flags);
     void internalDrawBitmapNine(const SkBitmap& bitmap, const SkIRect& center,
                                 const SkRect& dst, const SkPaint* paint);
     void internalDrawPaint(const SkPaint& paint);
     int internalSaveLayer(const SkRect* bounds, const SkPaint* paint,
                           SaveFlags, bool justForImageFilter);
-    void internalDrawDevice(SkDevice*, int x, int y, const SkPaint*);
+    void internalDrawDevice(SkBaseDevice*, int x, int y, const SkPaint*);
 
     // shared by save() and saveLayer()
     int internalSave(SaveFlags flags);
@@ -1063,6 +1107,7 @@ private:
     mutable SkRectCompareType fLocalBoundsCompareType;
     mutable bool              fLocalBoundsCompareTypeDirty;
     bool fAllowSoftClip;
+    bool fAllowSimplifyClip;
 
     const SkRectCompareType& getLocalClipBoundsCompareType() const {
         if (fLocalBoundsCompareTypeDirty) {
@@ -1072,6 +1117,7 @@ private:
         return fLocalBoundsCompareType;
     }
     void computeLocalClipBoundsCompareType() const;
+
 
     class AutoValidateClip : ::SkNoncopyable {
     public:
@@ -1126,6 +1172,27 @@ public:
 private:
     SkCanvas*   fCanvas;
     int         fSaveCount;
+};
+
+/** Stack helper class to automatically open and close a comment block
+ */
+class SkAutoCommentBlock : SkNoncopyable {
+public:
+    SkAutoCommentBlock(SkCanvas* canvas, const char* description) {
+        fCanvas = canvas;
+        if (NULL != fCanvas) {
+            fCanvas->beginCommentGroup(description);
+        }
+    }
+
+    ~SkAutoCommentBlock() {
+        if (NULL != fCanvas) {
+            fCanvas->endCommentGroup();
+        }
+    }
+
+private:
+    SkCanvas* fCanvas;
 };
 
 #endif

@@ -20,10 +20,10 @@ public:
 
     virtual SkCanvas* onNewCanvas() SK_OVERRIDE;
     virtual SkSurface* onNewSurface(const SkImage::Info&) SK_OVERRIDE;
-    virtual SkImage* onNewImageShapshot() SK_OVERRIDE;
+    virtual SkImage* onNewImageSnapshot() SK_OVERRIDE;
     virtual void onDraw(SkCanvas*, SkScalar x, SkScalar y,
                         const SkPaint*) SK_OVERRIDE;
-    virtual void onCopyOnWrite(SkImage*, SkCanvas*) SK_OVERRIDE;
+    virtual void onCopyOnWrite(ContentChangeMode) SK_OVERRIDE;
 
 private:
     SkGpuDevice* fDevice;
@@ -66,16 +66,13 @@ SkCanvas* SkSurface_Gpu::onNewCanvas() {
 }
 
 SkSurface* SkSurface_Gpu::onNewSurface(const SkImage::Info& info) {
-    GrRenderTarget* rt = (GrRenderTarget*) fDevice->accessRenderTarget();
+    GrRenderTarget* rt = fDevice->accessRenderTarget();
     int sampleCount = rt->numSamples();
     return SkSurface::NewRenderTarget(fDevice->context(), info, sampleCount);
 }
 
-SkImage* SkSurface_Gpu::onNewImageShapshot() {
-
-    GrRenderTarget* rt = (GrRenderTarget*) fDevice->accessRenderTarget();
-
-    return SkImage::NewTexture(rt->asTexture());
+SkImage* SkSurface_Gpu::onNewImageSnapshot() {
+    return SkImage::NewTexture(fDevice->accessBitmap(false));
 }
 
 void SkSurface_Gpu::onDraw(SkCanvas* canvas, SkScalar x, SkScalar y,
@@ -83,31 +80,26 @@ void SkSurface_Gpu::onDraw(SkCanvas* canvas, SkScalar x, SkScalar y,
     canvas->drawBitmap(fDevice->accessBitmap(false), x, y, paint);
 }
 
-// Copy the contents of the SkGpuDevice into a new texture and give that
-// texture to the SkImage. Note that this flushes the SkGpuDevice but
+// Create a new SkGpuDevice and, if necessary, copy the contents of the old
+// device into it. Note that this flushes the SkGpuDevice but
 // doesn't force an OpenGL flush.
-void SkSurface_Gpu::onCopyOnWrite(SkImage* image, SkCanvas*) {
-    GrRenderTarget* rt = (GrRenderTarget*) fDevice->accessRenderTarget();
-
+void SkSurface_Gpu::onCopyOnWrite(ContentChangeMode mode) {
+    GrRenderTarget* rt = fDevice->accessRenderTarget();
     // are we sharing our render target with the image?
-    if (rt->asTexture() == SkTextureImageGetTexture(image)) {
-        GrTextureDesc desc;
-        // copyTexture requires a render target as the destination
-        desc.fFlags = kRenderTarget_GrTextureFlagBit;
-        desc.fWidth = fDevice->width();
-        desc.fHeight = fDevice->height();
-        desc.fConfig = SkBitmapConfig2GrPixelConfig(fDevice->config());
-        desc.fSampleCnt = 0;
-
-        SkAutoTUnref<GrTexture> tex(fDevice->context()->createUncachedTexture(desc, NULL, 0));
-        if (NULL == tex) {
-            SkTextureImageSetTexture(image, NULL);
-            return;
+    SkASSERT(NULL != this->getCachedImage());
+    if (rt->asTexture() == SkTextureImageGetTexture(this->getCachedImage())) {
+        SkGpuDevice* newDevice = static_cast<SkGpuDevice*>(
+            fDevice->createCompatibleDevice(fDevice->config(), fDevice->width(),
+            fDevice->height(), fDevice->isOpaque()));
+        SkAutoTUnref<SkGpuDevice> aurd(newDevice);
+        if (kRetain_ContentChangeMode == mode) {
+            fDevice->context()->copyTexture(rt->asTexture(),
+                reinterpret_cast<GrRenderTarget*>(newDevice->accessRenderTarget()));
         }
-
-        fDevice->context()->copyTexture(rt->asTexture(), tex->asRenderTarget());
-
-        SkTextureImageSetTexture(image, tex);
+        SkASSERT(NULL != this->getCachedCanvas());
+        SkASSERT(this->getCachedCanvas()->getDevice() == fDevice);
+        this->getCachedCanvas()->setDevice(newDevice);
+        SkRefCnt_SafeAssign(fDevice, newDevice);
     }
 }
 
@@ -131,7 +123,7 @@ SkSurface* SkSurface::NewRenderTarget(GrContext* ctx, const SkImage::Info& info,
     SkBitmap::Config config = SkImageInfoToBitmapConfig(info, &isOpaque);
 
     GrTextureDesc desc;
-    desc.fFlags = kRenderTarget_GrTextureFlagBit;
+    desc.fFlags = kRenderTarget_GrTextureFlagBit | kCheckAllocation_GrTextureFlagBit;
     desc.fWidth = info.fWidth;
     desc.fHeight = info.fHeight;
     desc.fConfig = SkBitmapConfig2GrPixelConfig(config);

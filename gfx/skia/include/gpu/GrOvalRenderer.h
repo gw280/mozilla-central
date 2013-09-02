@@ -5,40 +5,49 @@
  * found in the LICENSE file.
  */
 
-
 #ifndef GrOvalRenderer_DEFINED
 #define GrOvalRenderer_DEFINED
 
 #include "GrContext.h"
 #include "GrPaint.h"
 #include "GrRefCnt.h"
-#include "GrRect.h"
 
 class GrContext;
 class GrDrawTarget;
 class GrPaint;
+struct SkRect;
 class SkStrokeRec;
 
 /*
- * This class wraps helper functions that draw ovals (filled & stroked)
+ * This class wraps helper functions that draw ovals and roundrects (filled & stroked)
  */
 class GrOvalRenderer : public GrRefCnt {
 public:
     SK_DECLARE_INST_COUNT(GrOvalRenderer)
 
-    GrOvalRenderer() {}
+    GrOvalRenderer() : fRRectIndexBuffer(NULL) {}
+    ~GrOvalRenderer() {
+        this->reset();
+    }
 
-    ~GrOvalRenderer() {}
+    void reset();
 
-    bool drawOval(GrDrawTarget* target, const GrContext* context, const GrPaint& paint,
-                  const GrRect& oval, const SkStrokeRec& stroke);
+    bool drawOval(GrDrawTarget* target, const GrContext* context, bool useAA,
+                  const SkRect& oval, const SkStrokeRec& stroke);
+    bool drawSimpleRRect(GrDrawTarget* target, GrContext* context, bool useAA,
+                         const SkRRect& rrect, const SkStrokeRec& stroke);
+
 private:
-    void drawEllipse(GrDrawTarget* target, const GrPaint& paint,
-                     const GrRect& ellipse,
+    bool drawEllipse(GrDrawTarget* target, bool useAA,
+                     const SkRect& ellipse,
                      const SkStrokeRec& stroke);
-    void drawCircle(GrDrawTarget* target, const GrPaint& paint,
-                    const GrRect& circle,
+    void drawCircle(GrDrawTarget* target, bool useAA,
+                    const SkRect& circle,
                     const SkStrokeRec& stroke);
+
+    GrIndexBuffer* rRectIndexBuffer(GrGpu* gpu);
+
+    GrIndexBuffer* fRRectIndexBuffer;
 
     typedef GrRefCnt INHERITED;
 };

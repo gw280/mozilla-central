@@ -10,6 +10,7 @@
 #include "SkColorPriv.h"
 #include "SkFlattenableBuffers.h"
 #include "SkUnPreMultiply.h"
+#include "SkString.h"
 
 static int32_t rowmul4(const int32_t array[], unsigned r, unsigned g,
                           unsigned b, unsigned a) {
@@ -390,9 +391,8 @@ public:
 
         GLEffect(const GrBackendEffectFactory& factory,
                  const GrDrawEffect&)
-        : INHERITED(factory)
-        , fMatrixHandle(GrGLUniformManager::kInvalidUniformHandle)
-        , fVectorHandle(GrGLUniformManager::kInvalidUniformHandle) {}
+        : INHERITED(factory) {
+        }
 
         virtual void emitCode(GrGLShaderBuilder* builder,
                               const GrDrawEffect&,
@@ -400,10 +400,10 @@ public:
                               const char* outputColor,
                               const char* inputColor,
                               const TextureSamplerArray&) SK_OVERRIDE {
-            fMatrixHandle = builder->addUniform(GrGLShaderBuilder::kFragment_ShaderType,
+            fMatrixHandle = builder->addUniform(GrGLShaderBuilder::kFragment_Visibility,
                                                 kMat44f_GrSLType,
                                                 "ColorMatrix");
-            fVectorHandle = builder->addUniform(GrGLShaderBuilder::kFragment_ShaderType,
+            fVectorHandle = builder->addUniform(GrGLShaderBuilder::kFragment_Visibility,
                                                 kVec4f_GrSLType,
                                                 "ColorMatrixVector");
 
@@ -476,4 +476,19 @@ GrEffectRef* SkColorMatrixFilter::asNewEffect(GrContext*) const {
     return ColorMatrixEffect::Create(fMatrix);
 }
 
+#endif
+
+#ifdef SK_DEVELOPER
+void SkColorMatrixFilter::toString(SkString* str) const {
+    str->append("SkColorMatrixFilter: ");
+
+    str->append("matrix: (");
+    for (int i = 0; i < 20; ++i) {
+        str->appendScalar(fMatrix.fMat[i]);
+        if (i < 19) {
+            str->append(", ");
+        }
+    }
+    str->append(")");
+}
 #endif

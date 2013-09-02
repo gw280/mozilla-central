@@ -13,15 +13,18 @@
 #include "SkData.h"
 #include "SkPDFCatalog.h"
 #include "SkPDFDevice.h"
-#include "SkPDFTypes.h"
+#include "SkPDFFormXObject.h"
+#include "SkPDFGraphicState.h"
+#include "SkPDFResourceDict.h"
 #include "SkPDFUtils.h"
 #include "SkScalar.h"
 #include "SkStream.h"
 #include "SkTemplates.h"
 #include "SkThread.h"
+#include "SkTSet.h"
 #include "SkTypes.h"
 
-static bool transformBBox(const SkMatrix& matrix, SkRect* bbox) {
+static bool inverseTransformBBox(const SkMatrix& matrix, SkRect* bbox) {
     SkMatrix inverse;
     if (!matrix.invert(&inverse)) {
         return false;
@@ -37,35 +40,35 @@ static void unitToPointsMatrix(const SkPoint pts[2], SkMatrix* matrix) {
 
     vec.scale(inv);
     matrix->setSinCos(vec.fY, vec.fX);
-    matrix->preTranslate(pts[0].fX, pts[0].fY);
     matrix->preScale(mag, mag);
+    matrix->postTranslate(pts[0].fX, pts[0].fY);
 }
 
 /* Assumes t + startOffset is on the stack and does a linear interpolation on t
    between startOffset and endOffset from prevColor to curColor (for each color
-   component), leaving the result in component order on the stack.
+   component), leaving the result in component order on the stack. It assumes
+   there are always 3 components per color.
    @param range                  endOffset - startOffset
    @param curColor[components]   The current color components.
    @param prevColor[components]  The previous color components.
    @param result                 The result ps function.
  */
 static void interpolateColorCode(SkScalar range, SkScalar* curColor,
-                                 SkScalar* prevColor, int components,
-                                 SkString* result) {
+                                 SkScalar* prevColor, SkString* result) {
+    static const int kColorComponents = 3;
+
     // Figure out how to scale each color component.
-    SkAutoSTMalloc<4, SkScalar> multiplierAlloc(components);
-    SkScalar *multiplier = multiplierAlloc.get();
-    for (int i = 0; i < components; i++) {
+    SkScalar multiplier[kColorComponents];
+    for (int i = 0; i < kColorComponents; i++) {
         multiplier[i] = SkScalarDiv(curColor[i] - prevColor[i], range);
     }
 
     // Calculate when we no longer need to keep a copy of the input parameter t.
     // If the last component to use t is i, then dupInput[0..i - 1] = true
     // and dupInput[i .. components] = false.
-    SkAutoSTMalloc<4, bool> dupInputAlloc(components);
-    bool *dupInput = dupInputAlloc.get();
-    dupInput[components - 1] = false;
-    for (int i = components - 2; i >= 0; i--) {
+    bool dupInput[kColorComponents];
+    dupInput[kColorComponents - 1] = false;
+    for (int i = kColorComponents - 2; i >= 0; i--) {
         dupInput[i] = dupInput[i + 1] || multiplier[i + 1] != 0;
     }
 
@@ -73,7 +76,7 @@ static void interpolateColorCode(SkScalar range, SkScalar* curColor,
         result->append("pop ");
     }
 
-    for (int i = 0; i < components; i++) {
+    for (int i = 0; i < kColorComponents; i++) {
         // If the next components needs t and this component will consume a
         // copy, make another copy.
         if (dupInput[i] && multiplier[i] != 0) {
@@ -159,8 +162,7 @@ static void gradientFunctionCode(const SkShader::GradientInfo& info,
         }
 
         interpolateColorCode(info.fColorOffsets[i] - info.fColorOffsets[i - 1],
-                             colorData[i], colorData[i - 1], kColorComponents,
-                             result);
+                             colorData[i], colorData[i - 1], result);
         result->append("}\n");
     }
 
@@ -399,7 +401,7 @@ class SkPDFShader::State {
 public:
     SkShader::GradientType fType;
     SkShader::GradientInfo fInfo;
-    SkAutoFree fColorData;
+    SkAutoFree fColorData;    // This provides storage for arrays in fInfo.
     SkMatrix fCanvasTransform;
     SkMatrix fShaderTransform;
     SkIRect fBBox;
@@ -408,9 +410,20 @@ public:
     uint32_t fPixelGeneration;
     SkShader::TileMode fImageTileModes[2];
 
-    explicit State(const SkShader& shader, const SkMatrix& canvasTransform,
-                   const SkIRect& bbox);
+    State(const SkShader& shader, const SkMatrix& canvasTransform,
+          const SkIRect& bbox);
+
     bool operator==(const State& b) const;
+
+    SkPDFShader::State* CreateAlphaToLuminosityState() const;
+    SkPDFShader::State* CreateOpaqueState() const;
+
+    bool GradientHasAlpha() const;
+
+private:
+    State(const State& other);
+    State operator=(const State& rhs);
+    void AllocateGradientInfoStorage();
 };
 
 class SkPDFFunctionShader : public SkPDFDict, public SkPDFShader {
@@ -441,11 +454,47 @@ private:
     SkPDFStream* makePSFunction(const SkString& psCode, SkPDFArray* domain);
 };
 
+/**
+ * A shader for PDF gradients. This encapsulates the function shader
+ * inside a tiling pattern while providing a common pattern interface.
+ * The encapsulation allows the use of a SMask for transparency gradients.
+ */
+class SkPDFAlphaFunctionShader : public SkPDFStream, public SkPDFShader {
+public:
+    explicit SkPDFAlphaFunctionShader(SkPDFShader::State* state);
+    virtual ~SkPDFAlphaFunctionShader() {
+        if (isValid()) {
+            RemoveShader(this);
+        }
+    }
+
+    virtual bool isValid() {
+        return fColorShader.get() != NULL;
+    }
+
+private:
+    SkAutoTDelete<const SkPDFShader::State> fState;
+
+    SkPDFGraphicState* CreateSMaskGraphicState();
+
+    void getResources(const SkTSet<SkPDFObject*>& knownResourceObjects,
+                      SkTSet<SkPDFObject*>* newResourceObjects) {
+        fResourceDict->getReferencedResources(knownResourceObjects,
+                                              newResourceObjects,
+                                              true);
+    }
+
+    SkAutoTUnref<SkPDFObject> fColorShader;
+    SkAutoTUnref<SkPDFResourceDict> fResourceDict;
+};
+
 class SkPDFImageShader : public SkPDFStream, public SkPDFShader {
 public:
     explicit SkPDFImageShader(SkPDFShader::State* state);
     virtual ~SkPDFImageShader() {
-        RemoveShader(this);
+        if (isValid()) {
+            RemoveShader(this);
+        }
         fResources.unrefAll();
     }
 
@@ -466,21 +515,10 @@ private:
 SkPDFShader::SkPDFShader() {}
 
 // static
-void SkPDFShader::RemoveShader(SkPDFObject* shader) {
-    SkAutoMutexAcquire lock(CanonicalShadersMutex());
-    ShaderCanonicalEntry entry(shader, NULL);
-    int index = CanonicalShaders().find(entry);
-    SkASSERT(index >= 0);
-    CanonicalShaders().removeShuffle(index);
-}
-
-// static
-SkPDFObject* SkPDFShader::GetPDFShader(const SkShader& shader,
-                                       const SkMatrix& matrix,
-                                       const SkIRect& surfaceBBox) {
+SkPDFObject* SkPDFShader::GetPDFShaderByState(State* inState) {
     SkPDFObject* result;
-    SkAutoMutexAcquire lock(CanonicalShadersMutex());
-    SkAutoTDelete<State> shaderState(new State(shader, matrix, surfaceBBox));
+
+    SkAutoTDelete<State> shaderState(inState);
     if (shaderState.get()->fType == SkShader::kNone_GradientType &&
             shaderState.get()->fImage.isNull()) {
         // TODO(vandebo) This drops SKComposeShader on the floor.  We could
@@ -506,10 +544,17 @@ SkPDFObject* SkPDFShader::GetPDFShader(const SkShader& shader,
         valid = imageShader->isValid();
         result = imageShader;
     } else {
-        SkPDFFunctionShader* functionShader =
-            new SkPDFFunctionShader(shaderState.detach());
-        valid = functionShader->isValid();
-        result = functionShader;
+        if (shaderState.get()->GradientHasAlpha()) {
+            SkPDFAlphaFunctionShader* gradientShader =
+                SkNEW_ARGS(SkPDFAlphaFunctionShader, (shaderState.detach()));
+            valid = gradientShader->isValid();
+            result = gradientShader;
+        } else {
+            SkPDFFunctionShader* functionShader =
+                SkNEW_ARGS(SkPDFFunctionShader, (shaderState.detach()));
+            valid = functionShader->isValid();
+            result = functionShader;
+        }
     }
     if (!valid) {
         delete result;
@@ -518,6 +563,24 @@ SkPDFObject* SkPDFShader::GetPDFShader(const SkShader& shader,
     entry.fPDFShader = result;
     CanonicalShaders().push(entry);
     return result;  // return the reference that came from new.
+}
+
+// static
+void SkPDFShader::RemoveShader(SkPDFObject* shader) {
+    SkAutoMutexAcquire lock(CanonicalShadersMutex());
+    ShaderCanonicalEntry entry(shader, NULL);
+    int index = CanonicalShaders().find(entry);
+    SkASSERT(index >= 0);
+    CanonicalShaders().removeShuffle(index);
+}
+
+// static
+SkPDFObject* SkPDFShader::GetPDFShader(const SkShader& shader,
+                                       const SkMatrix& matrix,
+                                       const SkIRect& surfaceBBox) {
+    SkAutoMutexAcquire lock(CanonicalShadersMutex());
+    return GetPDFShaderByState(
+            SkNEW_ARGS(State, (shader, matrix, surfaceBBox)));
 }
 
 // static
@@ -552,6 +615,108 @@ SkPDFObject* SkPDFFunctionShader::RangeObject() {
         range->appendInt(1);
     }
     return range;
+}
+
+static SkPDFResourceDict* get_gradient_resource_dict(
+        SkPDFObject* functionShader,
+        SkPDFObject* gState) {
+    SkPDFResourceDict* dict = new SkPDFResourceDict();
+
+    if (functionShader != NULL) {
+        dict->insertResourceAsReference(
+                SkPDFResourceDict::kPattern_ResourceType, 0, functionShader);
+    }
+    if (gState != NULL) {
+        dict->insertResourceAsReference(
+                SkPDFResourceDict::kExtGState_ResourceType, 0, gState);
+    }
+
+    return dict;
+}
+
+static void populate_tiling_pattern_dict(SkPDFDict* pattern,
+                                      SkRect& bbox, SkPDFDict* resources,
+                                      const SkMatrix& matrix) {
+    const int kTiling_PatternType = 1;
+    const int kColoredTilingPattern_PaintType = 1;
+    const int kConstantSpacing_TilingType = 1;
+
+    pattern->insertName("Type", "Pattern");
+    pattern->insertInt("PatternType", kTiling_PatternType);
+    pattern->insertInt("PaintType", kColoredTilingPattern_PaintType);
+    pattern->insertInt("TilingType", kConstantSpacing_TilingType);
+    pattern->insert("BBox", SkPDFUtils::RectToArray(bbox))->unref();
+    pattern->insertScalar("XStep", bbox.width());
+    pattern->insertScalar("YStep", bbox.height());
+    pattern->insert("Resources", resources);
+    if (!matrix.isIdentity()) {
+        pattern->insert("Matrix", SkPDFUtils::MatrixToArray(matrix))->unref();
+    }
+}
+
+/**
+ * Creates a content stream which fills the pattern P0 across bounds.
+ * @param gsIndex A graphics state resource index to apply, or <0 if no
+ * graphics state to apply.
+ */
+static SkStream* create_pattern_fill_content(int gsIndex, SkRect& bounds) {
+    SkDynamicMemoryWStream content;
+    if (gsIndex >= 0) {
+        SkPDFUtils::ApplyGraphicState(gsIndex, &content);
+    }
+    SkPDFUtils::ApplyPattern(0, &content);
+    SkPDFUtils::AppendRectangle(bounds, &content);
+    SkPDFUtils::PaintPath(SkPaint::kFill_Style, SkPath::kEvenOdd_FillType,
+                          &content);
+
+    return content.detachAsStream();
+}
+
+/**
+ * Creates a ExtGState with the SMask set to the luminosityShader in
+ * luminosity mode. The shader pattern extends to the bbox.
+ */
+SkPDFGraphicState* SkPDFAlphaFunctionShader::CreateSMaskGraphicState() {
+    SkRect bbox;
+    bbox.set(fState.get()->fBBox);
+
+    SkAutoTUnref<SkPDFObject> luminosityShader(
+            SkPDFShader::GetPDFShaderByState(
+                 fState->CreateAlphaToLuminosityState()));
+
+    SkAutoTUnref<SkStream> alphaStream(create_pattern_fill_content(-1, bbox));
+
+    SkAutoTUnref<SkPDFResourceDict>
+        resources(get_gradient_resource_dict(luminosityShader, NULL));
+
+    SkAutoTUnref<SkPDFFormXObject> alphaMask(
+            new SkPDFFormXObject(alphaStream.get(), bbox, resources.get()));
+
+    return SkPDFGraphicState::GetSMaskGraphicState(
+            alphaMask.get(), false,
+            SkPDFGraphicState::kLuminosity_SMaskMode);
+}
+
+SkPDFAlphaFunctionShader::SkPDFAlphaFunctionShader(SkPDFShader::State* state)
+        : fState(state) {
+    SkRect bbox;
+    bbox.set(fState.get()->fBBox);
+
+    fColorShader.reset(
+            SkPDFShader::GetPDFShaderByState(state->CreateOpaqueState()));
+
+    // Create resource dict with alpha graphics state as G0 and
+    // pattern shader as P0, then write content stream.
+    SkAutoTUnref<SkPDFGraphicState> alphaGs(CreateSMaskGraphicState());
+    fResourceDict.reset(
+            get_gradient_resource_dict(fColorShader.get(), alphaGs.get()));
+
+    SkAutoTUnref<SkStream> colorStream(
+            create_pattern_fill_content(0, bbox));
+    setData(colorStream.get());
+
+    populate_tiling_pattern_dict(this, bbox, fResourceDict.get(),
+                                 SkMatrix::I());
 }
 
 SkPDFFunctionShader::SkPDFFunctionShader(SkPDFShader::State* state)
@@ -610,11 +775,12 @@ SkPDFFunctionShader::SkPDFFunctionShader(SkPDFShader::State* state)
     SkMatrix mapperMatrix;
     unitToPointsMatrix(transformPoints, &mapperMatrix);
     SkMatrix finalMatrix = fState.get()->fCanvasTransform;
-    finalMatrix.preConcat(mapperMatrix);
     finalMatrix.preConcat(fState.get()->fShaderTransform);
+    finalMatrix.preConcat(mapperMatrix);
+
     SkRect bbox;
     bbox.set(fState.get()->fBBox);
-    if (!transformBBox(finalMatrix, &bbox)) {
+    if (!inverseTransformBBox(finalMatrix, &bbox)) {
         return;
     }
 
@@ -662,34 +828,60 @@ SkPDFFunctionShader::SkPDFFunctionShader(SkPDFShader::State* state)
 SkPDFImageShader::SkPDFImageShader(SkPDFShader::State* state) : fState(state) {
     fState.get()->fImage.lockPixels();
 
+    // The image shader pattern cell will be drawn into a separate device
+    // in pattern cell space (no scaling on the bitmap, though there may be
+    // translations so that all content is in the device, coordinates > 0).
+
+    // Map clip bounds to shader space to ensure the device is large enough
+    // to handle fake clamping.
     SkMatrix finalMatrix = fState.get()->fCanvasTransform;
     finalMatrix.preConcat(fState.get()->fShaderTransform);
-    SkRect surfaceBBox;
-    surfaceBBox.set(fState.get()->fBBox);
-    if (!transformBBox(finalMatrix, &surfaceBBox)) {
+    SkRect deviceBounds;
+    deviceBounds.set(fState.get()->fBBox);
+    if (!inverseTransformBBox(finalMatrix, &deviceBounds)) {
         return;
     }
 
-    SkMatrix unflip;
-    unflip.setTranslate(0, SkScalarRoundToScalar(surfaceBBox.height()));
-    unflip.preScale(SK_Scalar1, -SK_Scalar1);
-    SkISize size = SkISize::Make(SkScalarRound(surfaceBBox.width()),
-                                 SkScalarRound(surfaceBBox.height()));
-    SkPDFDevice pattern(size, size, unflip);
-    SkCanvas canvas(&pattern);
-    canvas.translate(-surfaceBBox.fLeft, -surfaceBBox.fTop);
-    finalMatrix.preTranslate(surfaceBBox.fLeft, surfaceBBox.fTop);
-
     const SkBitmap* image = &fState.get()->fImage;
-    SkScalar width = SkIntToScalar(image->width());
-    SkScalar height = SkIntToScalar(image->height());
+    SkRect bitmapBounds;
+    image->getBounds(&bitmapBounds);
+
+    // For tiling modes, the bounds should be extended to include the bitmap,
+    // otherwise the bitmap gets clipped out and the shader is empty and awful.
+    // For clamp modes, we're only interested in the clip region, whether
+    // or not the main bitmap is in it.
     SkShader::TileMode tileModes[2];
     tileModes[0] = fState.get()->fImageTileModes[0];
     tileModes[1] = fState.get()->fImageTileModes[1];
+    if (tileModes[0] != SkShader::kClamp_TileMode ||
+            tileModes[1] != SkShader::kClamp_TileMode) {
+        deviceBounds.join(bitmapBounds);
+    }
 
+    SkMatrix unflip;
+    unflip.setTranslate(0, SkScalarRoundToScalar(deviceBounds.height()));
+    unflip.preScale(SK_Scalar1, -SK_Scalar1);
+    SkISize size = SkISize::Make(SkScalarRound(deviceBounds.width()),
+                                 SkScalarRound(deviceBounds.height()));
+    SkPDFDevice pattern(size, size, unflip);
+    SkCanvas canvas(&pattern);
+
+    SkRect patternBBox;
+    image->getBounds(&patternBBox);
+
+    // Translate the canvas so that the bitmap origin is at (0, 0).
+    canvas.translate(-deviceBounds.left(), -deviceBounds.top());
+    patternBBox.offset(-deviceBounds.left(), -deviceBounds.top());
+    // Undo the translation in the final matrix
+    finalMatrix.preTranslate(deviceBounds.left(), deviceBounds.top());
+
+    // If the bitmap is out of bounds (i.e. clamp mode where we only see the
+    // stretched sides), canvas will clip this out and the extraneous data
+    // won't be saved to the PDF.
     canvas.drawBitmap(*image, 0, 0);
-    SkRect patternBBox = SkRect::MakeXYWH(-surfaceBBox.fLeft, -surfaceBBox.fTop,
-                                          width, height);
+
+    SkScalar width = SkIntToScalar(image->width());
+    SkScalar height = SkIntToScalar(image->height());
 
     // Tiling is implied.  First we handle mirroring.
     if (tileModes[0] == SkShader::kMirror_TileMode) {
@@ -723,28 +915,29 @@ SkPDFImageShader::SkPDFImageShader(SkPDFShader::State* state) : fState(state) {
             tileModes[1] == SkShader::kClamp_TileMode) {
         SkPaint paint;
         SkRect rect;
-        rect = SkRect::MakeLTRB(surfaceBBox.fLeft, surfaceBBox.fTop, 0, 0);
+        rect = SkRect::MakeLTRB(deviceBounds.left(), deviceBounds.top(), 0, 0);
         if (!rect.isEmpty()) {
             paint.setColor(image->getColor(0, 0));
             canvas.drawRect(rect, paint);
         }
 
-        rect = SkRect::MakeLTRB(width, surfaceBBox.fTop, surfaceBBox.fRight, 0);
+        rect = SkRect::MakeLTRB(width, deviceBounds.top(),
+                                deviceBounds.right(), 0);
         if (!rect.isEmpty()) {
             paint.setColor(image->getColor(image->width() - 1, 0));
             canvas.drawRect(rect, paint);
         }
 
-        rect = SkRect::MakeLTRB(width, height, surfaceBBox.fRight,
-                                surfaceBBox.fBottom);
+        rect = SkRect::MakeLTRB(width, height,
+                                deviceBounds.right(), deviceBounds.bottom());
         if (!rect.isEmpty()) {
             paint.setColor(image->getColor(image->width() - 1,
                                            image->height() - 1));
             canvas.drawRect(rect, paint);
         }
 
-        rect = SkRect::MakeLTRB(surfaceBBox.fLeft, height, 0,
-                                surfaceBBox.fBottom);
+        rect = SkRect::MakeLTRB(deviceBounds.left(), height,
+                                0, deviceBounds.bottom());
         if (!rect.isEmpty()) {
             paint.setColor(image->getColor(0, image->height() - 1));
             canvas.drawRect(rect, paint);
@@ -754,13 +947,13 @@ SkPDFImageShader::SkPDFImageShader(SkPDFShader::State* state) : fState(state) {
     // Then expand the left, right, top, then bottom.
     if (tileModes[0] == SkShader::kClamp_TileMode) {
         SkIRect subset = SkIRect::MakeXYWH(0, 0, 1, image->height());
-        if (surfaceBBox.fLeft < 0) {
+        if (deviceBounds.left() < 0) {
             SkBitmap left;
             SkAssertResult(image->extractSubset(&left, subset));
 
             SkMatrix leftMatrix;
-            leftMatrix.setScale(-surfaceBBox.fLeft, 1);
-            leftMatrix.postTranslate(surfaceBBox.fLeft, 0);
+            leftMatrix.setScale(-deviceBounds.left(), 1);
+            leftMatrix.postTranslate(deviceBounds.left(), 0);
             canvas.drawBitmapMatrix(left, leftMatrix);
 
             if (tileModes[1] == SkShader::kMirror_TileMode) {
@@ -771,13 +964,13 @@ SkPDFImageShader::SkPDFImageShader(SkPDFShader::State* state) : fState(state) {
             patternBBox.fLeft = 0;
         }
 
-        if (surfaceBBox.fRight > width) {
+        if (deviceBounds.right() > width) {
             SkBitmap right;
             subset.offset(image->width() - 1, 0);
             SkAssertResult(image->extractSubset(&right, subset));
 
             SkMatrix rightMatrix;
-            rightMatrix.setScale(surfaceBBox.fRight - width, 1);
+            rightMatrix.setScale(deviceBounds.right() - width, 1);
             rightMatrix.postTranslate(width, 0);
             canvas.drawBitmapMatrix(right, rightMatrix);
 
@@ -786,19 +979,19 @@ SkPDFImageShader::SkPDFImageShader(SkPDFShader::State* state) : fState(state) {
                 rightMatrix.postTranslate(0, 2 * height);
                 canvas.drawBitmapMatrix(right, rightMatrix);
             }
-            patternBBox.fRight = surfaceBBox.width();
+            patternBBox.fRight = deviceBounds.width();
         }
     }
 
     if (tileModes[1] == SkShader::kClamp_TileMode) {
         SkIRect subset = SkIRect::MakeXYWH(0, 0, image->width(), 1);
-        if (surfaceBBox.fTop < 0) {
+        if (deviceBounds.top() < 0) {
             SkBitmap top;
             SkAssertResult(image->extractSubset(&top, subset));
 
             SkMatrix topMatrix;
-            topMatrix.setScale(SK_Scalar1, -surfaceBBox.fTop);
-            topMatrix.postTranslate(0, surfaceBBox.fTop);
+            topMatrix.setScale(SK_Scalar1, -deviceBounds.top());
+            topMatrix.postTranslate(0, deviceBounds.top());
             canvas.drawBitmapMatrix(top, topMatrix);
 
             if (tileModes[0] == SkShader::kMirror_TileMode) {
@@ -809,13 +1002,13 @@ SkPDFImageShader::SkPDFImageShader(SkPDFShader::State* state) : fState(state) {
             patternBBox.fTop = 0;
         }
 
-        if (surfaceBBox.fBottom > height) {
+        if (deviceBounds.bottom() > height) {
             SkBitmap bottom;
             subset.offset(0, image->height() - 1);
             SkAssertResult(image->extractSubset(&bottom, subset));
 
             SkMatrix bottomMatrix;
-            bottomMatrix.setScale(SK_Scalar1, surfaceBBox.fBottom - height);
+            bottomMatrix.setScale(SK_Scalar1, deviceBounds.bottom() - height);
             bottomMatrix.postTranslate(0, height);
             canvas.drawBitmapMatrix(bottom, bottomMatrix);
 
@@ -824,31 +1017,18 @@ SkPDFImageShader::SkPDFImageShader(SkPDFShader::State* state) : fState(state) {
                 bottomMatrix.postTranslate(2 * width, 0);
                 canvas.drawBitmapMatrix(bottom, bottomMatrix);
             }
-            patternBBox.fBottom = surfaceBBox.height();
+            patternBBox.fBottom = deviceBounds.height();
         }
     }
-
-    SkAutoTUnref<SkPDFArray> patternBBoxArray(new SkPDFArray);
-    patternBBoxArray->reserve(4);
-    patternBBoxArray->appendScalar(patternBBox.fLeft);
-    patternBBoxArray->appendScalar(patternBBox.fTop);
-    patternBBoxArray->appendScalar(patternBBox.fRight);
-    patternBBoxArray->appendScalar(patternBBox.fBottom);
 
     // Put the canvas into the pattern stream (fContent).
     SkAutoTUnref<SkStream> content(pattern.content());
     setData(content.get());
-    pattern.getResources(fResources, &fResources, false);
+    SkPDFResourceDict* resourceDict = pattern.getResourceDict();
+    resourceDict->getReferencedResources(fResources, &fResources, false);
 
-    insertName("Type", "Pattern");
-    insertInt("PatternType", 1);
-    insertInt("PaintType", 1);
-    insertInt("TilingType", 1);
-    insert("BBox", patternBBoxArray.get());
-    insertScalar("XStep", patternBBox.width());
-    insertScalar("YStep", patternBBox.height());
-    insert("Resources", pattern.getResourceDict());
-    insert("Matrix", SkPDFUtils::MatrixToArray(finalMatrix))->unref();
+    populate_tiling_pattern_dict(this, patternBBox,
+                                 pattern.getResourceDict(), finalMatrix);
 
     fState.get()->fImage.unlockPixels();
 }
@@ -954,11 +1134,86 @@ SkPDFShader::State::State(const SkShader& shader,
         SkASSERT(matrix.isIdentity());
         fPixelGeneration = fImage.getGenerationID();
     } else {
-        fColorData.set(sk_malloc_throw(
-                    fInfo.fColorCount * (sizeof(SkColor) + sizeof(SkScalar))));
-        fInfo.fColors = reinterpret_cast<SkColor*>(fColorData.get());
-        fInfo.fColorOffsets =
-            reinterpret_cast<SkScalar*>(fInfo.fColors + fInfo.fColorCount);
+        AllocateGradientInfoStorage();
         shader.asAGradient(&fInfo);
     }
+}
+
+SkPDFShader::State::State(const SkPDFShader::State& other)
+  : fType(other.fType),
+    fCanvasTransform(other.fCanvasTransform),
+    fShaderTransform(other.fShaderTransform),
+    fBBox(other.fBBox)
+{
+    // Only gradients supported for now, since that is all that is used.
+    // If needed, image state copy constructor can be added here later.
+    SkASSERT(fType != SkShader::kNone_GradientType);
+
+    if (fType != SkShader::kNone_GradientType) {
+        fInfo = other.fInfo;
+
+        AllocateGradientInfoStorage();
+        for (int i = 0; i < fInfo.fColorCount; i++) {
+            fInfo.fColors[i] = other.fInfo.fColors[i];
+            fInfo.fColorOffsets[i] = other.fInfo.fColorOffsets[i];
+        }
+    }
+}
+
+/**
+ * Create a copy of this gradient state with alpha assigned to RGB luminousity.
+ * Only valid for gradient states.
+ */
+SkPDFShader::State* SkPDFShader::State::CreateAlphaToLuminosityState() const {
+    SkASSERT(fType != SkShader::kNone_GradientType);
+
+    SkPDFShader::State* newState = new SkPDFShader::State(*this);
+
+    for (int i = 0; i < fInfo.fColorCount; i++) {
+        SkAlpha alpha = SkColorGetA(fInfo.fColors[i]);
+        newState->fInfo.fColors[i] = SkColorSetARGB(255, alpha, alpha, alpha);
+    }
+
+    return newState;
+}
+
+/**
+ * Create a copy of this gradient state with alpha set to fully opaque
+ * Only valid for gradient states.
+ */
+SkPDFShader::State* SkPDFShader::State::CreateOpaqueState() const {
+    SkASSERT(fType != SkShader::kNone_GradientType);
+
+    SkPDFShader::State* newState = new SkPDFShader::State(*this);
+    for (int i = 0; i < fInfo.fColorCount; i++) {
+        newState->fInfo.fColors[i] = SkColorSetA(fInfo.fColors[i],
+                                                 SK_AlphaOPAQUE);
+    }
+
+    return newState;
+}
+
+/**
+ * Returns true if state is a gradient and the gradient has alpha.
+ */
+bool SkPDFShader::State::GradientHasAlpha() const {
+    if (fType == SkShader::kNone_GradientType) {
+        return false;
+    }
+
+    for (int i = 0; i < fInfo.fColorCount; i++) {
+        SkAlpha alpha = SkColorGetA(fInfo.fColors[i]);
+        if (alpha != SK_AlphaOPAQUE) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void SkPDFShader::State::AllocateGradientInfoStorage() {
+    fColorData.set(sk_malloc_throw(
+               fInfo.fColorCount * (sizeof(SkColor) + sizeof(SkScalar))));
+    fInfo.fColors = reinterpret_cast<SkColor*>(fColorData.get());
+    fInfo.fColorOffsets =
+            reinterpret_cast<SkScalar*>(fInfo.fColors + fInfo.fColorCount);
 }

@@ -5,11 +5,8 @@
  * found in the LICENSE file.
  */
 
-
-
 #ifndef GrGpuGL_DEFINED
 #define GrGpuGL_DEFINED
-
 
 #include "GrBinHashKey.h"
 #include "GrDrawState.h"
@@ -44,8 +41,10 @@ public:
     bool programUnitTest(int maxStages);
 
     // GrGpu overrides
-    virtual GrPixelConfig preferredReadPixelsConfig(GrPixelConfig config) const SK_OVERRIDE;
-    virtual GrPixelConfig preferredWritePixelsConfig(GrPixelConfig config) const SK_OVERRIDE;
+    virtual GrPixelConfig preferredReadPixelsConfig(GrPixelConfig readConfig,
+                                                    GrPixelConfig surfaceConfig) const SK_OVERRIDE;
+    virtual GrPixelConfig preferredWritePixelsConfig(GrPixelConfig writeConfig,
+                                                     GrPixelConfig surfaceConfig) const SK_OVERRIDE;
     virtual bool canWriteTexturePixels(const GrTexture*, GrPixelConfig srcConfig) const SK_OVERRIDE;
     virtual bool readPixelsWillPayForYFlip(
                                     GrRenderTarget* renderTarget,
@@ -54,6 +53,8 @@ public:
                                     GrPixelConfig config,
                                     size_t rowBytes) const SK_OVERRIDE;
     virtual bool fullReadPixelsIsFasterThanPartial() const SK_OVERRIDE;
+
+    virtual void initCopySurfaceDstDesc(const GrSurface* src, GrTextureDesc* desc) SK_OVERRIDE;
 
     virtual void abandonResources() SK_OVERRIDE;
 
@@ -85,9 +86,20 @@ public:
     void notifyTextureDelete(GrGLTexture* texture);
     void notifyRenderTargetDelete(GrRenderTarget* renderTarget);
 
+protected:
+    virtual bool onCopySurface(GrSurface* dst,
+                               GrSurface* src,
+                               const SkIRect& srcRect,
+                               const SkIPoint& dstPoint) SK_OVERRIDE;
+
+    virtual bool onCanCopySurface(GrSurface* dst,
+                                  GrSurface* src,
+                                  const SkIRect& srcRect,
+                                  const SkIPoint& dstPoint) SK_OVERRIDE;
+
 private:
     // GrGpu overrides
-    virtual void onResetContext() SK_OVERRIDE;
+    virtual void onResetContext(uint32_t resetBits) SK_OVERRIDE;
 
     virtual GrTexture* onCreateTexture(const GrTextureDesc& desc,
                                        const void* srcData,
@@ -106,7 +118,7 @@ private:
         GrStencilBuffer* sb,
         GrRenderTarget* rt) SK_OVERRIDE;
 
-    virtual void onClear(const GrIRect* rect, GrColor color) SK_OVERRIDE;
+    virtual void onClear(const SkIRect* rect, GrColor color) SK_OVERRIDE;
 
     virtual void onForceRenderTargetFlush() SK_OVERRIDE;
 
@@ -133,7 +145,7 @@ private:
     virtual void onGpuStencilPath(const GrPath*, SkPath::FillType) SK_OVERRIDE;
 
     virtual void clearStencil() SK_OVERRIDE;
-    virtual void clearStencilClip(const GrIRect& rect,
+    virtual void clearStencilClip(const SkIRect& rect,
                                   bool insideClip) SK_OVERRIDE;
     virtual bool flushGraphicsState(DrawType, const GrDeviceCoordTexture* dstCopy) SK_OVERRIDE;
 
@@ -163,48 +175,39 @@ private:
         ~ProgramCache();
 
         void abandon();
-        GrGLProgram* getProgram(const GrGLProgramDesc& desc, const GrEffectStage* stages[]);
+        GrGLProgram* getProgram(const GrGLProgramDesc& desc,
+                                const GrEffectStage* colorStages[],
+                                const GrEffectStage* coverageStages[]);
+
     private:
         enum {
-            kKeySize = sizeof(GrGLProgramDesc),
             // We may actually have kMaxEntries+1 shaders in the GL context because we create a new
             // shader before evicting from the cache.
-            kMaxEntries = 32
+            kMaxEntries = 32,
+            kHashBits = 6,
         };
 
-        class Entry;
-        // The value of the hash key is based on the ProgramDesc.
-        typedef GrTBinHashKey<Entry, kKeySize> ProgramHashKey;
+        struct Entry;
 
-        class Entry : public ::GrNoncopyable {
-        public:
-            Entry() : fProgram(NULL), fLRUStamp(0) {}
-            Entry& operator = (const Entry& entry) {
-                GrSafeRef(entry.fProgram.get());
-                fProgram.reset(entry.fProgram.get());
-                fKey = entry.fKey;
-                fLRUStamp = entry.fLRUStamp;
-                return *this;
-            }
-            int compare(const ProgramHashKey& key) const {
-                return fKey.compare(key);
-            }
+        struct ProgDescLess;
 
-        public:
-            SkAutoTUnref<GrGLProgram>   fProgram;
-            ProgramHashKey              fKey;
-            unsigned int                fLRUStamp; // Move outside entry?
-        };
+        // binary search for entry matching desc. returns index into fEntries that matches desc or ~
+        // of the index of where it should be inserted.
+        int search(const GrGLProgramDesc& desc) const;
 
-        GrTHashTable<Entry, ProgramHashKey, 8> fHashCache;
+        // sorted array of all the entries
+        Entry*                      fEntries[kMaxEntries];
+        // hash table based on lowest kHashBits bits of the program key. Used to avoid binary
+        // searching fEntries.
+        Entry*                      fHashTable[1 << kHashBits];
 
-        Entry                       fEntries[kMaxEntries];
         int                         fCount;
         unsigned int                fCurrLRUStamp;
         const GrGLContext&          fGL;
 #ifdef PROGRAM_CACHE_STATS
         int                         fTotalRequests;
         int                         fCacheMisses;
+        int                         fHashMisses; // cache hit but hash table missed
 #endif
     };
 
@@ -223,11 +226,13 @@ private:
     // determines valid stencil formats
     void initStencilFormats();
 
-    void setSpareTextureUnit();
+    // sets a texture unit to use for texture operations other than binding a texture to a program.
+    // ensures that such operations don't negatively interact with tracking bound textures.
+    void setScratchTextureUnit();
 
     // bound is region that may be modified and therefore has to be resolved.
     // NULL means whole target. Can be an empty rect.
-    void flushRenderTarget(const GrIRect* bound);
+    void flushRenderTarget(const SkIRect* bound);
     void flushStencil(DrawType);
     void flushAAState(DrawType);
 
@@ -249,8 +254,6 @@ private:
                                    GrGLRenderTarget::Desc* desc);
 
     void fillInConfigRenderableTable();
-
-    bool canReadBGRA() const;
 
     GrGLContext fGLContext;
 
@@ -310,7 +313,7 @@ private:
 
         void setVertexArrayID(GrGpuGL* gpu, GrGLuint arrayID) {
             if (!gpu->glCaps().vertexArrayObjectSupport()) {
-                GrAssert(0 == arrayID);
+                SkASSERT(0 == arrayID);
                 return;
             }
             if (!fBoundVertexArrayIDIsValid || arrayID != fBoundVertexArrayID) {
@@ -414,7 +417,7 @@ private:
     } fHWAAState;
 
 
-    GrGLProgram::MatrixState    fHWPathStencilMatrixState;
+    GrGLProgram::MatrixState    fHWProjectionMatrixState;
 
     GrStencilSettings           fHWStencilSettings;
     TriState                    fHWStencilTestEnabled;
@@ -423,7 +426,7 @@ private:
     TriState                    fHWWriteToColor;
     TriState                    fHWDitherEnabled;
     GrRenderTarget*             fHWBoundRenderTarget;
-    GrTexture*                  fHWBoundTextures[GrDrawState::kNumStages];
+    SkTArray<GrTexture*, true>  fHWBoundTextures;
     ///@}
 
     // we record what stencil format worked last time to hopefully exit early

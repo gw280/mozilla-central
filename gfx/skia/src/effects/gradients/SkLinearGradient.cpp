@@ -23,26 +23,17 @@ static inline int repeat_8bits(int x) {
 #endif
 
 static inline int mirror_bits(int x, const int bits) {
-#ifdef SK_CPU_HAS_CONDITIONAL_INSTR
-    if (x & (1 << bits))
+    if (x & (1 << bits)) {
         x = ~x;
+    }
     return x & ((1 << bits) - 1);
-#else
-    int s = x << (31 - bits) >> 31;
-    return (x ^ s) & ((1 << bits) - 1);
-#endif
 }
 
 static inline int mirror_8bits(int x) {
-#ifdef SK_CPU_HAS_CONDITIONAL_INSTR
     if (x & 256) {
         x = ~x;
     }
     return x & 255;
-#else
-    int s = x << 23 >> 31;
-    return (x ^ s) & 0xFF;
-#endif
 }
 
 #if defined(_MSC_VER) && (_MSC_VER >= 1600)
@@ -62,13 +53,8 @@ static void pts_to_unit_matrix(const SkPoint pts[2], SkMatrix* matrix) {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-SkLinearGradient::SkLinearGradient(const SkPoint pts[2],
-                                   const SkColor colors[],
-                                   const SkScalar pos[],
-                                   int colorCount,
-                                   SkShader::TileMode mode,
-                                   SkUnitMapper* mapper)
-    : SkGradientShaderBase(colors, pos, colorCount, mode, mapper)
+SkLinearGradient::SkLinearGradient(const SkPoint pts[2], const Descriptor& desc)
+    : SkGradientShaderBase(desc)
     , fStart(pts[0])
     , fEnd(pts[1]) {
     pts_to_unit_matrix(pts, &fPtsToUnit);
@@ -127,17 +113,6 @@ void shadeSpan_linear_vertical_lerp(TileProc proc, SkFixed dx, SkFixed fx,
                                     SkPMColor* SK_RESTRICT dstC,
                                     const SkPMColor* SK_RESTRICT cache,
                                     int toggle, int count) {
-    if (proc == clamp_tileproc) {
-        // No need to lerp or dither for clamp values
-        if (fx < 0) {
-            sk_memset32(dstC, cache[SkGradientShaderBase::kCache32ClampLower], count);
-            return;
-        } else if (fx > 0xffff) {
-            sk_memset32(dstC, cache[SkGradientShaderBase::kCache32ClampUpper], count);
-            return;
-        }
-    }
-
     // We're a vertical gradient, so no change in a span.
     // If colors change sharply across the gradient, dithering is
     // insufficient (it subsamples the color space) and we need to lerp.
@@ -165,7 +140,10 @@ void shadeSpan_linear_clamp(TileProc proc, SkFixed dx, SkFixed fx,
     range.init(fx, dx, count, 0, SkGradientShaderBase::kCache32Count - 1);
 
     if ((count = range.fCount0) > 0) {
-        sk_memset32(dstC, cache[SkGradientShaderBase::kCache32ClampLower], count);
+        sk_memset32_dither(dstC,
+            cache[toggle + range.fV0],
+            cache[next_dither_toggle(toggle) + range.fV0],
+            count);
         dstC += count;
     }
     if ((count = range.fCount1) > 0) {
@@ -184,7 +162,10 @@ void shadeSpan_linear_clamp(TileProc proc, SkFixed dx, SkFixed fx,
         }
     }
     if ((count = range.fCount2) > 0) {
-        sk_memset32(dstC, cache[SkGradientShaderBase::kCache32ClampUpper], count);
+        sk_memset32_dither(dstC,
+            cache[toggle + range.fV1],
+            cache[next_dither_toggle(toggle) + range.fV1],
+            count);
     }
 }
 
@@ -544,7 +525,7 @@ void GrGLLinearGradient::emitCode(GrGLShaderBuilder* builder,
                                   const char* inputColor,
                                   const TextureSamplerArray& samplers) {
     this->emitYCoordUniform(builder);
-    const char* coords;
+    SkString coords;
     this->setupMatrix(builder, key, &coords);
     SkString t;
     t.append(coords);

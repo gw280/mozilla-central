@@ -136,7 +136,11 @@ static void dilateY(const SkBitmap& src, SkBitmap* dst, int radiusY)
 bool SkErodeImageFilter::onFilterImage(Proxy* proxy,
                                        const SkBitmap& source, const SkMatrix& ctm,
                                        SkBitmap* dst, SkIPoint* offset) {
-    SkBitmap src = this->getInputResult(0, proxy, source, ctm, offset);
+    SkBitmap src = source;
+    if (getInput(0) && !getInput(0)->filterImage(proxy, source, ctm, &src, offset)) {
+        return false;
+    }
+
     if (src.config() != SkBitmap::kARGB_8888_Config) {
         return false;
     }
@@ -181,7 +185,10 @@ bool SkErodeImageFilter::onFilterImage(Proxy* proxy,
 bool SkDilateImageFilter::onFilterImage(Proxy* proxy,
                                         const SkBitmap& source, const SkMatrix& ctm,
                                         SkBitmap* dst, SkIPoint* offset) {
-    SkBitmap src = this->getInputResult(0, proxy, source, ctm, offset);
+    SkBitmap src = source;
+    if (getInput(0) && !getInput(0)->filterImage(proxy, source, ctm, &src, offset)) {
+        return false;
+    }
     if (src.config() != SkBitmap::kARGB_8888_Config) {
         return false;
     }
@@ -305,7 +312,6 @@ private:
 GrGLMorphologyEffect::GrGLMorphologyEffect(const GrBackendEffectFactory& factory,
                                            const GrDrawEffect& drawEffect)
     : INHERITED(factory)
-    , fImageIncrementUni(GrGLUniformManager::kInvalidUniformHandle)
     , fEffectMatrix(drawEffect.castEffect<GrMorphologyEffect>().coordsType()) {
     const GrMorphologyEffect& m = drawEffect.castEffect<GrMorphologyEffect>();
     fRadius = m.radius();
@@ -318,9 +324,9 @@ void GrGLMorphologyEffect::emitCode(GrGLShaderBuilder* builder,
                                     const char* outputColor,
                                     const char* inputColor,
                                     const TextureSamplerArray& samplers) {
-    const char* coords;
+    SkString coords;
     fEffectMatrix.emitCodeMakeFSCoords2D(builder, key, &coords);
-    fImageIncrementUni = builder->addUniform(GrGLShaderBuilder::kFragment_ShaderType,
+    fImageIncrementUni = builder->addUniform(GrGLShaderBuilder::kFragment_Visibility,
                                              kVec2f_GrSLType, "ImageIncrement");
 
     const char* func;
@@ -340,10 +346,10 @@ void GrGLMorphologyEffect::emitCode(GrGLShaderBuilder* builder,
     }
     const char* imgInc = builder->getUniformCStr(fImageIncrementUni);
 
-    builder->fsCodeAppendf("\t\tvec2 coord = %s - %d.0 * %s;\n", coords, fRadius, imgInc);
+    builder->fsCodeAppendf("\t\tvec2 coord = %s - %d.0 * %s;\n", coords.c_str(), fRadius, imgInc);
     builder->fsCodeAppendf("\t\tfor (int i = 0; i < %d; i++) {\n", this->width());
     builder->fsCodeAppendf("\t\t\t%s = %s(%s, ", outputColor, func, outputColor);
-    builder->appendTextureLookup(GrGLShaderBuilder::kFragment_ShaderType, samplers[0], "coord");
+    builder->fsAppendTextureLookup(samplers[0], "coord");
     builder->fsCodeAppend(");\n");
     builder->fsCodeAppendf("\t\t\tcoord += %s;\n", imgInc);
     builder->fsCodeAppend("\t\t}\n");
@@ -370,7 +376,7 @@ void GrGLMorphologyEffect::setData(const GrGLUniformManager& uman,
     const Gr1DKernelEffect& kern = drawEffect.castEffect<Gr1DKernelEffect>();
     GrTexture& texture = *kern.texture(0);
     // the code we generated was for a specific kernel radius
-    GrAssert(kern.radius() == fRadius);
+    SkASSERT(kern.radius() == fRadius);
     float imageIncrement[2] = { 0 };
     switch (kern.direction()) {
         case Gr1DKernelEffect::kX_Direction:
@@ -445,10 +451,10 @@ void apply_morphology_pass(GrContext* context,
                            GrMorphologyEffect::MorphologyType morphType,
                            Gr1DKernelEffect::Direction direction) {
     GrPaint paint;
-    paint.colorStage(0)->setEffect(GrMorphologyEffect::Create(texture,
-                                                              direction,
-                                                              radius,
-                                                              morphType))->unref();
+    paint.addColorEffect(GrMorphologyEffect::Create(texture,
+                                                    direction,
+                                                    radius,
+                                                    morphType))->unref();
     context->drawRect(paint, SkRect::MakeFromIRect(rect));
 }
 
@@ -462,7 +468,7 @@ GrTexture* apply_morphology(GrTexture* srcTexture,
     GrContext::AutoMatrix am;
     am.setIdentity(context);
 
-    GrContext::AutoClip acs(context, GrRect::MakeWH(SkIntToScalar(srcTexture->width()),
+    GrContext::AutoClip acs(context, SkRect::MakeWH(SkIntToScalar(srcTexture->width()),
                                                     SkIntToScalar(srcTexture->height())));
 
     GrTextureDesc desc;
@@ -495,12 +501,13 @@ GrTexture* apply_morphology(GrTexture* srcTexture,
 
 };
 
-bool SkDilateImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBitmap* result) {
+bool SkDilateImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, const SkMatrix& ctm,
+                                         SkBitmap* result, SkIPoint* offset) {
     SkBitmap inputBM;
-    if (!SkImageFilterUtils::GetInputResultGPU(getInput(0), proxy, src, &inputBM)) {
+    if (!SkImageFilterUtils::GetInputResultGPU(getInput(0), proxy, src, ctm, &inputBM, offset)) {
         return false;
     }
-    GrTexture* input = (GrTexture*) inputBM.getTexture();
+    GrTexture* input = inputBM.getTexture();
     SkIRect bounds;
     src.getBounds(&bounds);
     SkAutoTUnref<GrTexture> resultTex(apply_morphology(input, bounds,
@@ -508,12 +515,13 @@ bool SkDilateImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBi
     return SkImageFilterUtils::WrapTexture(resultTex, src.width(), src.height(), result);
 }
 
-bool SkErodeImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, SkBitmap* result) {
+bool SkErodeImageFilter::filterImageGPU(Proxy* proxy, const SkBitmap& src, const SkMatrix& ctm,
+                                        SkBitmap* result, SkIPoint* offset) {
     SkBitmap inputBM;
-    if (!SkImageFilterUtils::GetInputResultGPU(getInput(0), proxy, src, &inputBM)) {
+    if (!SkImageFilterUtils::GetInputResultGPU(getInput(0), proxy, src, ctm, &inputBM, offset)) {
         return false;
     }
-    GrTexture* input = (GrTexture*) inputBM.getTexture();
+    GrTexture* input = inputBM.getTexture();
     SkIRect bounds;
     src.getBounds(&bounds);
     SkAutoTUnref<GrTexture> resultTex(apply_morphology(input, bounds,

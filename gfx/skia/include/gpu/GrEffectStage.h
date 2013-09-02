@@ -20,40 +20,53 @@
 
 class GrEffectStage {
 public:
-    GrEffectStage()
-    : fEffectRef (NULL) {
-        GR_DEBUGCODE(fSavedCoordChangeCnt = 0;)
+    explicit GrEffectStage(const GrEffectRef* effectRef, int attrIndex0 = -1, int attrIndex1 = -1)
+    : fEffectRef(SkRef(effectRef)) {
+        fCoordChangeMatrixSet = false;
+        fVertexAttribIndices[0] = attrIndex0;
+        fVertexAttribIndices[1] = attrIndex1;
     }
 
-    ~GrEffectStage() {
-        GrSafeUnref(fEffectRef);
-        GrAssert(0 == fSavedCoordChangeCnt);
+    GrEffectStage(const GrEffectStage& other) {
+        *this = other;
     }
 
-    bool operator ==(const GrEffectStage& other) const {
-        // first handle cases where one or the other has no effect
-        if (NULL == fEffectRef) {
-            return NULL == other.fEffectRef;
-        } else if (NULL == other.fEffectRef) {
-            return false;
+    class DeferredStage;
+    // This constructor balances DeferredStage::saveFrom().
+    explicit GrEffectStage(const DeferredStage& deferredStage) {
+        deferredStage.restoreTo(this);
+    }
+
+    GrEffectStage& operator= (const GrEffectStage& other) {
+        fCoordChangeMatrixSet = other.fCoordChangeMatrixSet;
+        if (other.fCoordChangeMatrixSet) {
+            fCoordChangeMatrix = other.fCoordChangeMatrix;
         }
+        fEffectRef.reset(SkRef(other.fEffectRef.get()));
+        memcpy(fVertexAttribIndices, other.fVertexAttribIndices, sizeof(fVertexAttribIndices));
+        return *this;
+    }
+
+    bool operator== (const GrEffectStage& other) const {
+        SkASSERT(NULL != fEffectRef.get());
+        SkASSERT(NULL != other.fEffectRef.get());
 
         if (!(*this->getEffect())->isEqual(*other.getEffect())) {
             return false;
         }
 
+        if (fCoordChangeMatrixSet != other.fCoordChangeMatrixSet) {
+            return false;
+        }
+
+        if (!fCoordChangeMatrixSet) {
+            return true;
+        }
+
         return fCoordChangeMatrix == other.fCoordChangeMatrix;
     }
 
-    bool operator !=(const GrEffectStage& s) const { return !(*this == s); }
-
-    GrEffectStage& operator =(const GrEffectStage& other) {
-        GrSafeAssign(fEffectRef, other.fEffectRef);
-        if (NULL != fEffectRef) {
-            fCoordChangeMatrix = other.fCoordChangeMatrix;
-        }
-        return *this;
-    }
+    bool operator!= (const GrEffectStage& s) const { return !(*this == s); }
 
     /**
      * This is called when the coordinate system in which the geometry is specified will change.
@@ -61,10 +74,18 @@ public:
      * @param matrix    The transformation from the old coord system in which geometry is specified
      *                  to the new one from which it will actually be drawn.
      */
-    void localCoordChange(const SkMatrix& matrix) { fCoordChangeMatrix.preConcat(matrix); }
+    void localCoordChange(const SkMatrix& matrix) {
+        if (fCoordChangeMatrixSet) {
+            fCoordChangeMatrix.preConcat(matrix);
+        } else {
+            fCoordChangeMatrixSet = true;
+            fCoordChangeMatrix = matrix;
+        }
+    }
 
     class SavedCoordChange {
     private:
+        bool fCoordChangeMatrixSet;
         SkMatrix fCoordChangeMatrix;
         GR_DEBUGCODE(mutable SkAutoTUnref<const GrEffectRef> fEffectRef;)
 
@@ -78,20 +99,24 @@ public:
      * restore the previous coord system (e.g. temporarily draw in device coords).
      */
     void saveCoordChange(SavedCoordChange* savedCoordChange) const {
-        savedCoordChange->fCoordChangeMatrix = fCoordChangeMatrix;
-        GrAssert(NULL == savedCoordChange->fEffectRef.get());
-        GR_DEBUGCODE(GrSafeRef(fEffectRef);)
-        GR_DEBUGCODE(savedCoordChange->fEffectRef.reset(fEffectRef);)
-        GR_DEBUGCODE(++fSavedCoordChangeCnt);
+        savedCoordChange->fCoordChangeMatrixSet = fCoordChangeMatrixSet;
+        if (fCoordChangeMatrixSet) {
+            savedCoordChange->fCoordChangeMatrix = fCoordChangeMatrix;
+        }
+        SkASSERT(NULL == savedCoordChange->fEffectRef.get());
+        GR_DEBUGCODE(SkRef(fEffectRef.get());)
+        GR_DEBUGCODE(savedCoordChange->fEffectRef.reset(fEffectRef.get());)
     }
 
     /**
      * This balances the saveCoordChange call.
      */
     void restoreCoordChange(const SavedCoordChange& savedCoordChange) {
-        fCoordChangeMatrix = savedCoordChange.fCoordChangeMatrix;
-        GrAssert(savedCoordChange.fEffectRef.get() == fEffectRef);
-        GR_DEBUGCODE(--fSavedCoordChangeCnt);
+        fCoordChangeMatrixSet = savedCoordChange.fCoordChangeMatrixSet;
+        if (fCoordChangeMatrixSet) {
+            fCoordChangeMatrix = savedCoordChange.fCoordChangeMatrix;
+        }
+        SkASSERT(savedCoordChange.fEffectRef.get() == fEffectRef);
         GR_DEBUGCODE(savedCoordChange.fEffectRef.reset(NULL);)
     }
 
@@ -112,40 +137,33 @@ public:
         }
 
         void saveFrom(const GrEffectStage& stage) {
-            GrAssert(!fInitialized);
-            if (NULL != stage.fEffectRef) {
-                stage.fEffectRef->get()->incDeferredRefCounts();
-                fEffect = stage.fEffectRef->get();
+            SkASSERT(!fInitialized);
+            SkASSERT(NULL != stage.fEffectRef.get());
+            stage.fEffectRef->get()->incDeferredRefCounts();
+            fEffect = stage.fEffectRef->get();
+            fCoordChangeMatrixSet = stage.fCoordChangeMatrixSet;
+            if (fCoordChangeMatrixSet) {
                 fCoordChangeMatrix = stage.fCoordChangeMatrix;
-                fVertexAttribIndices[0] = stage.fVertexAttribIndices[0];
-                fVertexAttribIndices[1] = stage.fVertexAttribIndices[1];
             }
+            fVertexAttribIndices[0] = stage.fVertexAttribIndices[0];
+            fVertexAttribIndices[1] = stage.fVertexAttribIndices[1];
             SkDEBUGCODE(fInitialized = true;)
         }
 
-        void restoreTo(GrEffectStage* stage) {
-            GrAssert(fInitialized);
-            const GrEffectRef* oldEffectRef = stage->fEffectRef;
-            if (NULL != fEffect) {
-                stage->fEffectRef = GrEffect::CreateEffectRef(fEffect);
+        void restoreTo(GrEffectStage* stage) const {
+            SkASSERT(fInitialized);
+            stage->fEffectRef.reset(GrEffect::CreateEffectRef(fEffect));
+            stage->fCoordChangeMatrixSet = fCoordChangeMatrixSet;
+            if (fCoordChangeMatrixSet) {
                 stage->fCoordChangeMatrix = fCoordChangeMatrix;
-                stage->fVertexAttribIndices[0] = fVertexAttribIndices[0];
-                stage->fVertexAttribIndices[1] = fVertexAttribIndices[1];
-            } else {
-                stage->fEffectRef = NULL;
             }
-            SkSafeUnref(oldEffectRef);
+            stage->fVertexAttribIndices[0] = fVertexAttribIndices[0];
+            stage->fVertexAttribIndices[1] = fVertexAttribIndices[1];
         }
 
-        bool isEqual(const GrEffectStage& stage) const {
-            if (NULL == stage.fEffectRef) {
-                return NULL == fEffect;
-            } else if (NULL == fEffect) {
-                return false;
-            }
-
-            if (fVertexAttribIndices[0] != stage.fVertexAttribIndices[0]
-                || fVertexAttribIndices[1] != stage.fVertexAttribIndices[1]) {
+        bool isEqual(const GrEffectStage& stage, bool ignoreCoordChange) const {
+            if (fVertexAttribIndices[0] != stage.fVertexAttribIndices[0] ||
+                fVertexAttribIndices[1] != stage.fVertexAttribIndices[1]) {
                 return false;
             }
 
@@ -153,11 +171,26 @@ public:
                 return false;
             }
 
+            if (ignoreCoordChange) {
+                // ignore the coordinate change matrix since there are
+                // explicit uv coordinates
+                return true;
+            }
+
+            if (fCoordChangeMatrixSet != stage.fCoordChangeMatrixSet) {
+                return false;
+            }
+
+            if (!fCoordChangeMatrixSet) {
+                return true;
+            }
+
             return fCoordChangeMatrix == stage.fCoordChangeMatrix;
         }
 
     private:
         const GrEffect*               fEffect;
+        bool                          fCoordChangeMatrixSet;
         SkMatrix                      fCoordChangeMatrix;
         int                           fVertexAttribIndices[2];
         SkDEBUGCODE(bool fInitialized;)
@@ -167,45 +200,24 @@ public:
      * Gets the matrix representing all changes of coordinate system since the GrEffect was
      * installed in the stage.
      */
-    const SkMatrix& getCoordChangeMatrix() const { return fCoordChangeMatrix; }
-
-    void reset() {
-        GrSafeSetNull(fEffectRef);
+    const SkMatrix& getCoordChangeMatrix() const {
+        if (fCoordChangeMatrixSet) {
+            return fCoordChangeMatrix;
+        } else {
+            return SkMatrix::I();
+        }
     }
 
-    const GrEffectRef* setEffect(const GrEffectRef* EffectRef) {
-        GrAssert(0 == fSavedCoordChangeCnt);
-        GrSafeAssign(fEffectRef, EffectRef);
-        fCoordChangeMatrix.reset();
-
-        fVertexAttribIndices[0] = -1;
-        fVertexAttribIndices[1] = -1;
-
-        return EffectRef;
-    }
-
-    const GrEffectRef* setEffect(const GrEffectRef* EffectRef, int attr0, int attr1 = -1) {
-        GrAssert(0 == fSavedCoordChangeCnt);
-        GrSafeAssign(fEffectRef, EffectRef);
-        fCoordChangeMatrix.reset();
-
-        fVertexAttribIndices[0] = attr0;
-        fVertexAttribIndices[1] = attr1;
-
-        return EffectRef;
-    }
-
-    const GrEffectRef* getEffect() const { return fEffectRef; }
+    const GrEffectRef* getEffect() const { return fEffectRef.get(); }
 
     const int* getVertexAttribIndices() const { return fVertexAttribIndices; }
     int getVertexAttribIndexCount() const { return fEffectRef->get()->numVertexAttribs(); }
 
 private:
-    SkMatrix                fCoordChangeMatrix;
-    const GrEffectRef*      fEffectRef;
-    int                     fVertexAttribIndices[2];
-
-    GR_DEBUGCODE(mutable int fSavedCoordChangeCnt;)
+    bool                                fCoordChangeMatrixSet;
+    SkMatrix                            fCoordChangeMatrix;
+    SkAutoTUnref<const GrEffectRef>     fEffectRef;
+    int                                 fVertexAttribIndices[2];
 };
 
 #endif

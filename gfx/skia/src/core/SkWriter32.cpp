@@ -268,8 +268,11 @@ size_t SkReader32::readIntoString(SkString* copy) {
 }
 
 void SkWriter32::writeString(const char str[], size_t len) {
+    if (NULL == str) {
+        str = "";
+        len = 0;
+    }
     if ((long)len < 0) {
-        SkASSERT(str);
         len = strlen(str);
     }
     this->write32(len);

@@ -5,16 +5,24 @@
  * found in the LICENSE file.
  */
 
-#include "SkBlitRow_opts_arm.h"
-
-#include "SkBlitMask.h"
 #include "SkBlitRow.h"
 #include "SkColorPriv.h"
 #include "SkDither.h"
 #include "SkMathPriv.h"
 #include "SkUtils.h"
+#include "SkUtilsArm.h"
 
 #include "SkCachePreload_arm.h"
+
+// Define USE_NEON_CODE to indicate that we need to build NEON routines
+#define USE_NEON_CODE  (!SK_ARM_NEON_IS_NONE)
+
+// Define USE_ARM_CODE to indicate that we need to build ARM routines
+#define USE_ARM_CODE   (!SK_ARM_NEON_IS_ALWAYS)
+
+#if USE_NEON_CODE
+  #include "SkBlitRow_opts_arm_neon.h"
+#endif
 
 #if USE_ARM_CODE
 
@@ -31,9 +39,7 @@ static void S32A_D565_Opaque(uint16_t* SK_RESTRICT dst,
                   "and     r4, r3, #0x0000f8            \n\t"
                   "and     r5, r3, #0x00fc00            \n\t"
                   "and     r6, r3, #0xf80000            \n\t"
-#ifdef SK_ARM_HAS_EDSP
                   "pld     [r1, #32]                    \n\t"
-#endif
                   "lsl     r3, r4, #8                   \n\t"
                   "orr     r3, r3, r5, lsr #5           \n\t"
                   "orr     r3, r3, r6, lsr #19          \n\t"
@@ -47,15 +53,13 @@ static void S32A_D565_Opaque(uint16_t* SK_RESTRICT dst,
                   "ldrh    r4, [%[dst]]                 \n\t"
                   "rsb     r7, r7, #255                 \n\t"
                   "and     r6, r4, #0x001f              \n\t"
-#if SK_ARM_ARCH <= 6
+#if SK_ARM_ARCH == 6
                   "lsl     r5, r4, #21                  \n\t"
                   "lsr     r5, r5, #26                  \n\t"
 #else
                   "ubfx    r5, r4, #5, #6               \n\t"
 #endif
-#ifdef SK_ARM_HAS_EDSP
                   "pld     [r0, #16]                    \n\t"
-#endif
                   "lsr     r4, r4, #11                  \n\t"
 #ifdef SK_ARM_HAS_EDSP
                   "smulbb  r6, r6, r7                   \n\t"
@@ -66,14 +70,8 @@ static void S32A_D565_Opaque(uint16_t* SK_RESTRICT dst,
                   "mul     r5, r5, r7                   \n\t"
                   "mul     r4, r4, r7                   \n\t"
 #endif
-#if SK_ARM_ARCH >= 6
                   "uxtb    r7, r3, ROR #16              \n\t"
                   "uxtb    ip, r3, ROR #8               \n\t"
-#else
-                  "mov     ip, #0xff                    \n\t"
-                  "and     r7, ip, r3, ROR #16          \n\t"
-                  "and     ip, ip, r3, ROR #8           \n\t"
-#endif
                   "and     r3, r3, #0xff                \n\t"
                   "add     r6, r6, #16                  \n\t"
                   "add     r5, r5, #32                  \n\t"
@@ -90,9 +88,7 @@ static void S32A_D565_Opaque(uint16_t* SK_RESTRICT dst,
                   "orr     r6, r6, r5, lsl #3           \n\t"
                   "orr     r4, r6, r4, lsl #8           \n\t"
                   "strh    r4, [%[dst]], #2             \n\t"
-#ifdef SK_ARM_HAS_EDSP
                   "pld     [r1, #32]                    \n\t"
-#endif
                   "subs    %[count], %[count], #1       \n\t"
                   "bne     1b                           \n\t"
                   "b       4f                           \n\t"
@@ -197,12 +193,10 @@ static void S32A_Opaque_BlitRow32_arm(SkPMColor* SK_RESTRICT dst,
                   : "cc", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "ip", "memory"
                   );
 }
-#endif // USE_ARM_CODE
 
 /*
  * ARM asm version of S32A_Blend_BlitRow32
  */
-// This version is also used by the NEON procs table, so always compile it
 void S32A_Blend_BlitRow32_arm(SkPMColor* SK_RESTRICT dst,
                               const SkPMColor* SK_RESTRICT src,
                               int count, U8CPU alpha) {
@@ -343,8 +337,7 @@ void S32A_Blend_BlitRow32_arm(SkPMColor* SK_RESTRICT dst,
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#if USE_ARM_CODE
-const SkBlitRow::Proc sk_blitrow_platform_565_procs_arm[] = {
+static const SkBlitRow::Proc sk_blitrow_platform_565_procs_arm[] = {
     // no dither
     // NOTE: For the functions below, we don't have a special version
     //       that assumes that each source pixel is opaque. But our S32A is
@@ -361,31 +354,14 @@ const SkBlitRow::Proc sk_blitrow_platform_565_procs_arm[] = {
     NULL,   // S32A_D565_Blend_Dither
 };
 
-const SkBlitRow::Proc sk_blitrow_platform_4444_procs_arm[] = {
-    // no dither
-    NULL,   // S32_D4444_Opaque,
-    NULL,   // S32_D4444_Blend,
-    NULL,   // S32A_D4444_Opaque,
-    NULL,   // S32A_D4444_Blend,
-
-    // dither
-    NULL,   // S32_D4444_Opaque_Dither,
-    NULL,   // S32_D4444_Blend_Dither,
-    NULL,   // S32A_D4444_Opaque_Dither,
-    NULL,   // S32A_D4444_Blend_Dither
-};
-
-const SkBlitRow::Proc32 sk_blitrow_platform_32_procs_arm[] = {
+static const SkBlitRow::Proc32 sk_blitrow_platform_32_procs_arm[] = {
     NULL,   // S32_Opaque,
     NULL,   // S32_Blend,
     S32A_Opaque_BlitRow32_arm,   // S32A_Opaque,
     S32A_Blend_BlitRow32_arm     // S32A_Blend
 };
-#endif
 
-SkBlitRow::Proc SkBlitRow::PlatformProcs4444(unsigned flags) {
-    return SK_ARM_NEON_WRAP(sk_blitrow_platform_4444_procs_arm)[flags];
-}
+#endif // USE_ARM_CODE
 
 SkBlitRow::Proc SkBlitRow::PlatformProcs565(unsigned flags) {
     return SK_ARM_NEON_WRAP(sk_blitrow_platform_565_procs_arm)[flags];
@@ -399,20 +375,4 @@ SkBlitRow::Proc32 SkBlitRow::PlatformProcs32(unsigned flags) {
 #define Color32_arm  NULL
 SkBlitRow::ColorProc SkBlitRow::PlatformColorProc() {
     return SK_ARM_NEON_WRAP(Color32_arm);
-}
-
-SkBlitMask::ColorProc SkBlitMask::PlatformColorProcs(SkBitmap::Config dstConfig,
-                                                     SkMask::Format maskFormat,
-                                                     SkColor color) {
-    return NULL;
-}
-
-SkBlitMask::BlitLCD16RowProc SkBlitMask::PlatformBlitRowProcs16(bool isOpaque) {
-    return NULL;
-}
-
-SkBlitMask::RowProc SkBlitMask::PlatformRowProcs(SkBitmap::Config dstConfig,
-                                                 SkMask::Format maskFormat,
-                                                 RowFlags flags) {
-    return NULL;
 }

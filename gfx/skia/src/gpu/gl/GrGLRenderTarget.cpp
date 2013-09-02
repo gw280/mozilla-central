@@ -20,8 +20,7 @@ void GrGLRenderTarget::init(const Desc& desc,
     fTexFBOID               = desc.fTexFBOID;
     fMSColorRenderbufferID  = desc.fMSColorRenderbufferID;
     fViewport               = viewport;
-    fTexIDObj               = texID;
-    GrSafeRef(fTexIDObj);
+    fTexIDObj.reset(SkSafeRef(texID));
 }
 
 namespace {
@@ -53,15 +52,15 @@ GrGLRenderTarget::GrGLRenderTarget(GrGpuGL* gpu,
                          viewport.fWidth, viewport.fHeight,
                          desc.fConfig, desc.fSampleCnt,
                          desc.fOrigin)) {
-    GrAssert(NULL != texID);
-    GrAssert(NULL != texture);
+    SkASSERT(NULL != texID);
+    SkASSERT(NULL != texture);
     // FBO 0 can't also be a texture, right?
-    GrAssert(0 != desc.fRTFBOID);
-    GrAssert(0 != desc.fTexFBOID);
+    SkASSERT(0 != desc.fRTFBOID);
+    SkASSERT(0 != desc.fTexFBOID);
 
     // we assume this is true, TODO: get rid of viewport as a param.
-    GrAssert(viewport.fWidth == texture->width());
-    GrAssert(viewport.fHeight == texture->height());
+    SkASSERT(viewport.fWidth == texture->width());
+    SkASSERT(viewport.fHeight == texture->height());
 
     this->init(desc, viewport, texID);
 }
@@ -95,8 +94,7 @@ void GrGLRenderTarget::onRelease() {
     fRTFBOID                = 0;
     fTexFBOID               = 0;
     fMSColorRenderbufferID  = 0;
-    GrSafeUnref(fTexIDObj);
-    fTexIDObj = NULL;
+    fTexIDObj.reset(NULL);
     INHERITED::onRelease();
 }
 
@@ -104,9 +102,9 @@ void GrGLRenderTarget::onAbandon() {
     fRTFBOID                = 0;
     fTexFBOID               = 0;
     fMSColorRenderbufferID  = 0;
-    if (NULL != fTexIDObj) {
+    if (NULL != fTexIDObj.get()) {
         fTexIDObj->abandon();
-        fTexIDObj = NULL;
+        fTexIDObj.reset(NULL);
     }
     INHERITED::onAbandon();
 }

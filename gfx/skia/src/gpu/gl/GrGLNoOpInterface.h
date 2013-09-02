@@ -55,11 +55,22 @@ GrGLvoid GR_GL_FUNCTION_TYPE noOpGLCompressedTexImage2D(GrGLenum target,
                                                         GrGLsizei imageSize,
                                                         const GrGLvoid* data);
 
+GrGLvoid GR_GL_FUNCTION_TYPE noOpGLCopyTexSubImage2D(GrGLenum target,
+                                                     GrGLint level,
+                                                     GrGLint xoffset,
+                                                     GrGLint yoffset,
+                                                     GrGLint x,
+                                                     GrGLint y,
+                                                     GrGLsizei width,
+                                                     GrGLsizei height);
+
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLCullFace(GrGLenum mode);
 
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLDepthMask(GrGLboolean flag);
 
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLDisable(GrGLenum cap);
+
+GrGLvoid GR_GL_FUNCTION_TYPE noOpGLDisableClientState(GrGLenum);
 
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLDisableVertexAttribArray(GrGLuint index);
 
@@ -77,6 +88,8 @@ GrGLvoid GR_GL_FUNCTION_TYPE noOpGLDrawElements(GrGLenum mode,
 
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLEnable(GrGLenum cap);
 
+GrGLvoid GR_GL_FUNCTION_TYPE noOpGLEnableClientState(GrGLenum cap);
+
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLEnableVertexAttribArray(GrGLuint index);
 
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLEndQuery(GrGLenum target);
@@ -87,9 +100,15 @@ GrGLvoid GR_GL_FUNCTION_TYPE noOpGLFlush();
 
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLFrontFace(GrGLenum mode);
 
+GrGLvoid GR_GL_FUNCTION_TYPE noOpGLLoadIdentity();
+
+GrGLvoid GR_GL_FUNCTION_TYPE noOpGLLoadMatrixf(const GrGLfloat*);
+
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLLineWidth(GrGLfloat width);
 
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLLinkProgram(GrGLuint program);
+
+GrGLvoid GR_GL_FUNCTION_TYPE noOpGLMatrixMode(GrGLenum);
 
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLQueryCounter(GrGLuint id,
                                                 GrGLenum target);
@@ -149,6 +168,16 @@ GrGLvoid GR_GL_FUNCTION_TYPE noOpGLTexStorage2D(GrGLenum target,
                                                 GrGLenum internalformat,
                                                 GrGLsizei width,
                                                 GrGLsizei height);
+
+GrGLvoid GR_GL_FUNCTION_TYPE noOpGLTexGenf(GrGLenum, GrGLenum, GrGLfloat);
+
+GrGLvoid GR_GL_FUNCTION_TYPE noOpGLTexGenfv(GrGLenum, GrGLenum, const GrGLfloat*);
+
+GrGLvoid GR_GL_FUNCTION_TYPE noOpGLTexGeni(GrGLenum, GrGLenum, GrGLint);
+
+GrGLvoid GR_GL_FUNCTION_TYPE noOpGLDiscardFramebuffer(GrGLenum target,
+                                                      GrGLsizei numAttachments,
+                                                      const GrGLenum* attachments);
 
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLTexSubImage2D(GrGLenum target,
                                                  GrGLint level,
@@ -247,6 +276,8 @@ GrGLvoid GR_GL_FUNCTION_TYPE noOpGLVertexAttribPointer(GrGLuint indx,
                                                        GrGLboolean normalized,
                                                        GrGLsizei stride,
                                                        const GrGLvoid* ptr);
+
+GrGLvoid GR_GL_FUNCTION_TYPE noOpGLVertexPointer(GrGLint, GrGLenum, GrGLsizei, const GrGLvoid*);
 
 GrGLvoid GR_GL_FUNCTION_TYPE noOpGLViewport(GrGLint x,
                                             GrGLint y,

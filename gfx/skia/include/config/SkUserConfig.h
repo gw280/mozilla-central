@@ -122,10 +122,12 @@
  */
 //#define SK_DEFAULT_FONT_CACHE_LIMIT   (1024 * 1024)
 
-/* If defined, use CoreText instead of ATSUI on OS X.
-*/
-//#define SK_USE_MAC_CORE_TEXT
-
+/*
+ *  To specify the default size of the image cache, undefine this and set it to
+ *  the desired value (in bytes). SkGraphics.h as a runtime API to set this
+ *  value as well. If this is undefined, a built-in value will be used.
+ */
+//#define SK_DEFAULT_IMAGE_CACHE_LIMIT (1024 * 1024)
 
 /*  If zlib is available and you want to support the flate compression
     algorithm (used in PDF generation), define SK_ZLIB_INCLUDE to be the
@@ -143,17 +145,6 @@
 /*  Define this to provide font subsetter in PDF generation.
  */
 //#define SK_SFNTLY_SUBSETTER "sfntly/subsetter/font_subsetter.h"
-
-/*  Define this to remove dimension checks on bitmaps. Not all blits will be
-    correct yet, so this is mostly for debugging the implementation.
- */
-#define SK_ALLOW_OVER_32K_BITMAPS
-
-/**
- *  To revert to int-only srcrect behavior in drawBitmapRect(ToRect),
- *  define this symbol.
- */
-//#define SK_SUPPORT_INT_SRCRECT_DRAWBITMAPRECT
 
 /*  Define this to set the upper limit for text to support LCD. Values that
     are very large increase the cost in the font cache and draw slower, without
@@ -201,14 +192,14 @@
  */
 //#define SK_SUPPORT_GPU 1
 
-/*  Don't dither 32bit gradients, to match what the canvas test suite expects.
- */
-#define SK_DISABLE_DITHER_32BIT_GRADIENT
 
-/*  Don't include stdint.h on windows as it conflicts with our build system.
+/* The PDF generation code uses Path Ops to generate inverse fills and complex
+ * clipping paths, but at this time, Path Ops is not release ready yet. So,
+ * the code is hidden behind this #define guard. If you are feeling adventurous
+ * and want the latest and greatest PDF generation code, uncomment the #define.
+ * When Path Ops is release ready, the define guards and this user config
+ * define should be removed entirely.
  */
-#ifdef SK_BUILD_FOR_WIN32 
-    #define SK_IGNORE_STDINT_DOT_H 
-#endif 
+//#define SK_PDF_USE_PATHOPS
 
 #endif

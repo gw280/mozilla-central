@@ -19,11 +19,7 @@
 #include "SkTSearch.h"
 
 #ifndef SK_FONT_FILE_PREFIX
-#ifdef SK_BUILD_FOR_ANDROID
-    #define SK_FONT_FILE_PREFIX "/fonts/"
-#else
     #define SK_FONT_FILE_PREFIX "/usr/share/fonts/truetype/"
-#endif
 #endif
 #ifndef SK_FONT_FILE_DIR_SEPERATOR
     #define SK_FONT_FILE_DIR_SEPERATOR "/"
@@ -253,6 +249,7 @@ public:
 
 protected:
     virtual void onGetFontDescriptor(SkFontDescriptor*, bool*) const SK_OVERRIDE;
+    virtual SkTypeface* onRefMatchingStyle(Style styleBits) const SK_OVERRIDE;
 
 private:
     FamilyRec*  fFamilyRec; // we don't own this, just point to it
@@ -409,13 +406,7 @@ static void load_system_fonts() {
         return;
     }
 
-    SkString baseDirectory;
-#ifdef SK_BUILD_FOR_ANDROID
-    baseDirectory.set(getenv("ANDROID_ROOT"));
-#endif
-
-    baseDirectory.append(SK_FONT_FILE_PREFIX);
-
+    SkString baseDirectory(SK_FONT_FILE_PREFIX);
     unsigned int count = 0;
     load_directory_fonts(baseDirectory, &count);
 
@@ -463,11 +454,9 @@ void FamilyTypeface::onGetFontDescriptor(SkFontDescriptor* desc,
     *isLocalStream = !this->isSysFont();
 }
 
-///////////////////////////////////////////////////////////////////////////////
-
-SkTypeface* SkFontHost::CreateTypeface(const SkTypeface* familyFace,
-                                       const char familyName[],
-                                       SkTypeface::Style style) {
+static SkTypeface* create_typeface(const SkTypeface* familyFace,
+                                   const char familyName[],
+                                   SkTypeface::Style style) {
     load_system_fonts();
 
     SkAutoMutexAcquire  ac(gFamilyMutex);
@@ -492,7 +481,19 @@ SkTypeface* SkFontHost::CreateTypeface(const SkTypeface* familyFace,
     return tf;
 }
 
+SkTypeface* FamilyTypeface::onRefMatchingStyle(Style style) const {
+    return create_typeface(this, NULL, style);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
+
+#ifndef SK_FONTHOST_USES_FONTMGR
+
+SkTypeface* SkFontHost::CreateTypeface(const SkTypeface* familyFace,
+                                       const char familyName[],
+                                       SkTypeface::Style style) {
+    return create_typeface(familyFace, NULL, style);
+}
 
 SkTypeface* SkFontHost::CreateTypefaceFromStream(SkStream* stream) {
     if (NULL == stream || stream->getLength() <= 0) {
@@ -513,6 +514,8 @@ SkTypeface* SkFontHost::CreateTypefaceFromFile(const char path[]) {
     SkAutoTUnref<SkStream> stream(SkStream::NewFromFile(path));
     return stream.get() ? CreateTypefaceFromStream(stream) : NULL;
 }
+
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
