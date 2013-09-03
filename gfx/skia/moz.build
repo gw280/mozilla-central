@@ -497,7 +497,7 @@ CPP_SOURCES += [
         'SkMath.cpp',
         'SkMatrix.cpp',
         'SkMatrixConvolutionImageFilter.cpp',
-        'SkMemory_malloc.cpp',
+        'SkMemory_mozalloc.cpp',
         'SkMergeImageFilter.cpp',
         'SkMetaData.cpp',
         'SkMipMap.cpp',
