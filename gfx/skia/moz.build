@@ -172,6 +172,7 @@ elif CONFIG['MOZ_WIDGET_TOOLKIT'] == 'windows':
     CPP_SOURCES += [
         'SkFontHost_win.cpp',
         'SkFontHost_sandbox_none.cpp',
+        'SkFontMgr_default_gdi.cpp',
         'SkOSFile_win.cpp',
         'SkTLS_win.cpp',
         'SkThread_win.cpp',
@@ -434,6 +435,7 @@ CPP_SOURCES += [
         'SkDashPathEffect.cpp',
         'SkData.cpp',
         'SkDataPixelRef.cpp',
+        'SkDataTable.cpp',
         'SkDebug.cpp',
         'SkDeferredCanvas.cpp',
         'SkDeque.cpp',
