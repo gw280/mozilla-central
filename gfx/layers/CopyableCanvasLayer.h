@@ -25,6 +25,13 @@
 using namespace mozilla::gfx;
 
 namespace mozilla {
+
+namespace gfx {
+class SurfaceStream;
+class SharedSurface;
+class SurfaceFactory;
+}
+
 namespace layers {
 
 class CanvasClientWebGL;
@@ -53,6 +60,12 @@ protected:
   nsRefPtr<gfxASurface> mSurface;
   nsRefPtr<mozilla::gl::GLContext> mGLContext;
   mozilla::RefPtr<mozilla::gfx::DrawTarget> mDrawTarget;
+
+#ifdef USE_SKIA_GPU
+  SurfaceStream* mStream;
+  SharedSurface* mTextureSurface;
+  SurfaceFactory* mFactory;
+#endif
 
   uint32_t mCanvasFramebuffer;
 

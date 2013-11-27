@@ -22,6 +22,7 @@
 using namespace mozilla::gfx;
 
 namespace mozilla {
+
 namespace layers {
 
 class CompositableClient;

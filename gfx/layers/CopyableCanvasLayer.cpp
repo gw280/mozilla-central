@@ -51,6 +51,9 @@ CopyableCanvasLayer::Initialize(const Data& aData)
     mNeedsYFlip = false;
   } else if (aData.mGLContext) {
     mGLContext = aData.mGLContext;
+#ifdef USE_SKIA_GPU
+    mStream = aData.mStream;
+#endif
     mIsGLAlphaPremult = aData.mIsGLAlphaPremult;
     mNeedsYFlip = true;
     MOZ_ASSERT(mGLContext->IsOffscreen(), "canvas gl context isn't offscreen");
