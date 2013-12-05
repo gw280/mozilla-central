@@ -58,7 +58,7 @@ SurfaceStream::CreateForType(SurfaceStreamType type, mozilla::gl::GLContext* glC
 }
 
 void
-SurfaceStream_TripleBuffer::CopySurfaceToProducer(SharedSurface* src, SurfaceFactory* factory)
+SurfaceStream::CopySurfaceToProducer(SharedSurface* src, SurfaceFactory* factory)
 {
     SharedSurface::Copy(src, mProducer, factory);
 }

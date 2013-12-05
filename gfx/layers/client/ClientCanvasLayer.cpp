@@ -40,10 +40,10 @@ ClientCanvasLayer::Initialize(const Data& aData)
 
   if (mStream) {
     mFactory = new SurfaceFactory_GLTexture(mGLContext, nullptr, SurfaceCaps::ForRGBA());
-    bool hasAlpha = GetContentFlags() & CONTENT_OPAQUE;
+    bool hasAlpha = !(GetContentFlags() & CONTENT_OPAQUE);
     mTextureSurface = SharedSurface_GLTexture::Create(mGLContext, mGLContext,
                                                       mGLContext->GetGLFormats(),
-                                                      aData.mSize, hasAlpha, aData.mTexID);
+                                                      aData.mSize, true, aData.mTexID);
   } else if (mGLContext) {
     GLScreenBuffer* screen = mGLContext->Screen();
     SurfaceStreamType streamType =

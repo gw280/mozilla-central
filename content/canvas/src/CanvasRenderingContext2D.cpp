@@ -98,7 +98,9 @@
 #include "GLContext.h"
 #include "GLContextProvider.h"
 #include "GLContextSkia.h"
+#include "SharedSurfaceGL.h"
 #include "SurfaceStream.h"
+#include "SurfaceFactory.h"
 #include "SurfaceTypes.h"
 #include "nsIGfxInfo.h"
 using mozilla::gl::GLContext;
@@ -875,7 +877,7 @@ CanvasRenderingContext2D::EnsureTarget()
           // of Moz2D), the GLContextSkia object is just a GenericRefCounted and so it can't pull in the
           // GrContext there.
           mTarget = Factory::CreateDrawTargetSkiaWithGLContextSkia(glContextSkia, glContextSkia->GetGrContext(), size, format);
-          mStream = gfx::SurfaceStream::CreateForType(SurfaceStreamType::TripleBuffer, glContextSkia->GetGLContext());
+          mStream = gfx::SurfaceStream::CreateForType(SurfaceStreamType::TripleBuffer_Async, glContextSkia->GetGLContext());
 
           AddDemotableContext(this);
         } else {

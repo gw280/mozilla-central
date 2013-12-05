@@ -40,7 +40,7 @@ CanvasClient::CreateCanvasClient(CanvasClientType aType,
                                  CompositableForwarder* aForwarder,
                                  TextureFlags aFlags)
 {
-  if (aType == CanvasClientGLContext &&
+  if (true || aType == CanvasClientGLContext &&
       aForwarder->GetCompositorBackendType() == LAYERS_OPENGL) {
     aFlags |= TEXTURE_DEALLOCATE_CLIENT;
     return new DeprecatedCanvasClientSurfaceStream(aForwarder, aFlags);

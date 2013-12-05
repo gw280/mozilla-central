@@ -218,13 +218,13 @@ CreateTexturedEffect(gfx::SurfaceFormat aFormat,
     result = new EffectBGRA(aSource, true, aFilter);
     break;
   case gfx::FORMAT_B8G8R8X8:
-    result = new EffectBGRX(aSource, true, aFilter);
+    result = new EffectBGRA(aSource, true, aFilter);
     break;
   case gfx::FORMAT_R8G8B8X8:
-    result = new EffectRGBX(aSource, true, aFilter);
+    result = new EffectRGBA(aSource, true, aFilter);
     break;
   case gfx::FORMAT_R5G6B5:
-    result = new EffectRGBX(aSource, true, aFilter);
+    result = new EffectRGBA(aSource, true, aFilter);
     break;
   case gfx::FORMAT_R8G8B8A8:
     result = new EffectRGBA(aSource, true, aFilter);

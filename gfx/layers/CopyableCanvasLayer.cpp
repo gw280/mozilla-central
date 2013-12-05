@@ -9,6 +9,7 @@
 #include "GLScreenBuffer.h"             // for GLScreenBuffer
 #include "SharedSurface.h"              // for SharedSurface
 #include "SharedSurfaceGL.h"            // for SharedSurface_GL, etc
+#include "SurfaceStream.h"
 #include "SurfaceTypes.h"               // for APITypeT, APITypeT::OpenGL, etc
 #include "gfxImageSurface.h"            // for gfxImageSurface
 #include "gfxMatrix.h"                  // for gfxMatrix
@@ -96,7 +97,13 @@ CopyableCanvasLayer::UpdateSurface(gfxASurface* aDestSurface, Layer* aMaskLayer)
     nsRefPtr<gfxImageSurface> readSurf;
     nsRefPtr<gfxASurface> resultSurf;
 
-    SharedSurface* sharedSurf = mGLContext->RequestFrame();
+    SharedSurface* sharedSurf = nullptr;
+    
+    if (mStream)
+      sharedSurf = mStream->SwapConsumer();
+    else
+      sharedSurf = mGLContext->RequestFrame();
+
     if (!sharedSurf) {
       NS_WARNING("Null frame received.");
       return;

@@ -785,7 +785,7 @@ DrawTargetSkia::InitWithGLContextSkia(GenericRefCountedBase* aGLContextSkia,
   targetDescriptor.fFlags = kRenderTarget_GrTextureFlagBit;
   targetDescriptor.fWidth = mSize.width;
   targetDescriptor.fHeight = mSize.height;
-  targetDescriptor.fConfig = GfxFormatToGrConfig(mFormat);
+  targetDescriptor.fConfig = kBGRA_8888_GrPixelConfig;
   targetDescriptor.fOrigin = kBottomLeft_GrSurfaceOrigin;
   targetDescriptor.fSampleCnt = 0;
 

@@ -766,8 +766,8 @@ SurfaceStreamHostOGL::Lock()
       mTextureHandle = glTexSurf->Texture();
       mTextureTarget = glTexSurf->TextureTarget();
       MOZ_ASSERT(mTextureHandle);
-      mFormat = sharedSurf->HasAlpha() ? FORMAT_R8G8B8A8
-                                       : FORMAT_R8G8B8X8;
+      mFormat =  FORMAT_R8G8B8A8;
+                                 //      : FORMAT_R8G8B8X8;
       break;
     }
     case SharedSurfaceType::EGLImageShare: {

@@ -123,7 +123,7 @@ public:
 
     virtual SharedSurface* Resize(SurfaceFactory* factory, const gfxIntSize& size);
 
-    virtual void CopySurfaceToProducer(SharedSurface* src, SurfaceFactory* factory) { MOZ_ASSERT(0); }
+    virtual void CopySurfaceToProducer(SharedSurface* src, SurfaceFactory* factory);
 
 protected:
     // SwapCons will return the same surface more than once,
@@ -196,7 +196,6 @@ protected:
 public:
     SurfaceStream_TripleBuffer(SurfaceStream* prevStream);
     virtual ~SurfaceStream_TripleBuffer();
-    virtual void CopySurfaceToProducer(SharedSurface* src, SurfaceFactory* factory);
 
     virtual SharedSurface* Resize(SurfaceFactory* factory, const gfxIntSize& size);
 private:
